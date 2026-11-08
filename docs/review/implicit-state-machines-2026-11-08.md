@@ -811,6 +811,7 @@
 | 4 | `b82694d5` | API：`jwt:user` 权限缓存封顶 5 分钟，让直接改库的权限变更有限时间内收敛。 |
 | 5 | `77856715` | Web：sessions/trigger 翻页、改页大小、排序时清空批量选择，trigger 批量删除后也清空。 |
 | 6 | `56c72692` | Web：会话重命名移出 state updater，避免渲染阶段写 localStorage。 |
+| 7 | `15408fa6` | Web：`/login` 与 `/callback` 的 OAuth code 兑换加 `useRef` 幂等守卫，语言切换 / StrictMode 重跑不再二次兑换。 |
 
 ### 明确保留、未修
 
