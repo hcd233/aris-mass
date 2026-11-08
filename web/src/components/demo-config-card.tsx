@@ -18,14 +18,18 @@ export function DemoConfigCard() {
   const t = useT();
   const [config, setConfig] = useState<DemoConfig | null>(null);
   const [saving, setSaving] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const fetchConfig = useCallback(async () => {
+    setLoadFailed(false);
     try {
       const rsp = await api.getDemoConfig();
       setConfig(
         rsp.config ? { ...rsp.config, modules: normalizeDemoModules(rsp.config.modules) } : null,
       );
     } catch (err) {
+      // 失败时保留可见的错误态与重试入口：整卡 return null 会让 admin 无从恢复
+      setLoadFailed(true);
       showErrorToast(err, { title: t("demo.load_error") });
     }
   }, [t]);
@@ -69,7 +73,20 @@ export function DemoConfigCard() {
   }, [config, t]);
 
   if (!config) {
-    return null;
+    if (!loadFailed) return null;
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="font-display">{t("demo.config_title")}</CardTitle>
+        </CardHeader>
+        <CardContent className="flex items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">{t("demo.load_error")}</p>
+          <Button variant="outline" size="sm" onClick={() => void fetchConfig()}>
+            {t("common.retry")}
+          </Button>
+        </CardContent>
+      </Card>
+    );
   }
 
   return (

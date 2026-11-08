@@ -171,12 +171,20 @@ export function ModelDialog({
         setAutofillHint({ kind: "miss", name });
         return;
       }
-      setForm((f) => ({
-        ...f,
-        contextLength: rsp.contextLength || f.contextLength,
-        maxOutputTokens: rsp.maxOutputTokens || f.maxOutputTokens,
-        capabilities: rsp.capabilities?.length ? ensureText([...rsp.capabilities]) : f.capabilities,
-      }));
+      // 等待期间用户可能改了 upstreamModel：只在名字仍匹配时写入，
+      // 否则会把旧模型的规格覆盖到新名字上（提示条按名字失效救不了写入）。
+      setForm((f) =>
+        f.upstreamModel.trim() !== name
+          ? f
+          : {
+              ...f,
+              contextLength: rsp.contextLength || f.contextLength,
+              maxOutputTokens: rsp.maxOutputTokens || f.maxOutputTokens,
+              capabilities: rsp.capabilities?.length
+                ? ensureText([...rsp.capabilities])
+                : f.capabilities,
+            },
+      );
       setAutofillHint({ kind: "filled", name });
     } catch {
       setAutofillHint({ kind: "miss", name });
