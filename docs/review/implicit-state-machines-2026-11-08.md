@@ -798,3 +798,28 @@
 | `web/src/lib/nav.ts` 导航裁剪 | 纯派生，无转移 |
 | `internal/client/api/client.go` | 无状态 HTTP 客户端 |
 | `internal/application/metrics/query/runtime_metrics.go:114` 实例 liveness | 由快照窗口推导，可视为监控派生态而非业务 FSM |
+
+---
+
+## 修复记录（分支 `bugfix/implicit-state-machine-hardening-2026-11-08`）
+
+| 批次 | 提交 | 内容 |
+|---|---|---|
+| 1 | `183c1ea2` | API：会话去重缓存失效覆盖被软删冗余行；审计入队失败可观测。CLI：config 损坏回退 legacy；model 原子写补 `Sync`；update 预检目录、探测重定向校验、拒绝超限解包。Web：harness/profile 准入守卫；会话详情按 id 重建；分享页清错误态；Playground 重跑闸门 + activeId 同步；分页页码钳制；认证过期同步内存态 + demo 配置重拉；确认框 loading 可达；cron 保存失败保持弹窗；apikeys 单飞。 |
+| 2 | `6b56c1b5` | Web：Upstream OAuth 加 generation 与授权窗口引用，切换 provider/关闭弹窗后丢弃旧响应。CLI：init 健康检查与 Key 校验加 5 次上限并给出改 host/Key 的提示。API：trigger 重建失败进入 10s 退避。 |
+| 3 | `ec8d57c0` | Web：demo 配置加载失败展示错误态 + 重试；模型规格导入按名字丢弃过期响应。 |
+| 4 | `b82694d5` | API：`jwt:user` 权限缓存封顶 5 分钟，让直接改库的权限变更有限时间内收敛。 |
+
+### 明确保留、未修
+
+| 项 | 理由 |
+|---|---|
+| API Key 吊销后 30s 鉴权缓存窗口 | 代码注释已声明的有意取舍（命令层不持有 Redis） |
+| `aris update` 安装后固定 0700 | `TestRunInstallsBinaryWithOwnerMode` 守护的安装契约 |
+| 审计跨端点 fallback 只记终局 | 设计如此（中间失败暂存后丢弃） |
+| `aris status` 健康失败仍 exit 0 | 退出码属于对外契约，改动会影响现有脚本，留待产品决策 |
+| Web 列表跨页选择残留 | UX 语义未定（清空 vs 标注跨页选择） |
+| Playground localStorage 写入仍在 state updater 内 | 需重构持久化时机，超出本次缺陷修复范围 |
+| DSH 双文件一致性 | 需要 journal/校验设计，属于新机制而非局部修复 |
+| Codex TOML 行扫描 | 需引入解析器，改动面大 |
+| 会话终态清理 30min 阈值 | 运营参数，需产品给定可配置口径 |
