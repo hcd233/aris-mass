@@ -13,11 +13,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { PageHeader } from "@/components/page-header";
+import { PermissionGuard } from "@/components/permission-guard";
 import { formatDate } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 
-export default function ProfilePage() {
+function ProfilePageContent() {
   const { user, isLoading } = useAuth();
   const t = useT();
   const [name, setName] = useState("");
@@ -145,5 +146,15 @@ export default function ProfilePage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+// 个人资料写接口要求 PermissionUser：demo/pending 直接访问 URL 时页面必须给出
+// 与导航一致的拒绝态，而不是渲染一个提交会被后端拒绝的表单。
+export default function ProfilePage() {
+  return (
+    <PermissionGuard>
+      <ProfilePageContent />
+    </PermissionGuard>
   );
 }

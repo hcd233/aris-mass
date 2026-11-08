@@ -95,15 +95,18 @@ export default function CronPage() {
   };
 
   const handleSaveSpec = useCallback(
-    async (spec: string) => {
-      if (!editingJob) return;
-      const rsp = await api.updateCronJob({ name: editingJob.name, spec });
-      if (rsp.error) {
-        showErrorToast(rsp.error, { title: t("cron.update_schedule_error") });
-        return;
+    async (spec: string): Promise<boolean> => {
+      if (!editingJob) return false;
+      try {
+        // api-client 对业务错误直接 throw，这里统一 catch；返回 false 让弹窗保持打开
+        await api.updateCronJob({ name: editingJob.name, spec });
+      } catch (err) {
+        showErrorToast(err, { title: t("cron.update_schedule_error") });
+        return false;
       }
       setJobs((prev) => prev.map((j) => (j.name === editingJob.name ? { ...j, spec } : j)));
       toast.success(`${editingJob.name} ${t("cron.schedule_updated")}`);
+      return true;
     },
     [editingJob, setJobs, t],
   );

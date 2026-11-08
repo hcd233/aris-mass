@@ -40,6 +40,8 @@ const (
 
 	// ArisClientUpdateTempPattern 自替换临时文件模板（与目标二进制同目录）
 	ArisClientUpdateTempPattern = ".aris-update-*"
+	// ArisClientUpdateProbePattern 目标目录可写性预检临时文件模板
+	ArisClientUpdateProbePattern = ".aris-update-probe-*"
 	// ArisClientUpdateBinaryMode 安装后的二进制权限
 	ArisClientUpdateBinaryMode = 0o700
 
@@ -69,4 +71,5 @@ const (
 	ArisClientUpdateTooManyRedirectsMessage   = "Too many redirects while fetching the release asset."
 	ArisClientUpdateAssetStatusFormat         = "Release asset %s returned status %d."
 	ArisClientUpdateArchiveTooLargeFormat     = "Downloaded release asset exceeds the %d byte limit."
+	ArisClientUpdateBinaryTooLargeFormat      = "Extracted aris binary exceeds the %d byte limit."
 )

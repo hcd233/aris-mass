@@ -287,6 +287,8 @@ function PlaygroundPage() {
 
   const handleRerun = useCallback(
     (index: number) => {
+      // 与 handleSend 同闸门：流进行中不允许再起一轮，否则第二条流会覆盖 abortRef
+      if (!activeId || sending) return;
       const session = sessions.find((s) => s.id === activeId);
       if (!session) return;
       const kept = session.messages.filter((_, i) => i !== index);
@@ -295,7 +297,7 @@ function PlaygroundPage() {
       persist(next);
       void runGenerate(kept);
     },
-    [activeId, sessions, persist, runGenerate],
+    [activeId, sending, sessions, persist, runGenerate],
   );
 
   const handleDelete = useCallback(
@@ -348,14 +350,15 @@ function PlaygroundPage() {
 
   const handleDeleteSession = useCallback(
     (id: string) => {
-      setSessions((prev) => {
-        const rest = prev.filter((s) => s.id !== id);
-        const next = rest.length > 0 ? rest : [newSession()];
-        persist(next);
-        return next;
-      });
+      const rest = sessions.filter((s) => s.id !== id);
+      const next = rest.length > 0 ? rest : [newSession()];
+      setSessions(next);
+      persist(next);
+      // 删除当前会话后必须把 activeId 指向存活的会话，否则 handleSend/handleRerun
+      // 会按旧 id 找不到会话并静默 return，输入区看起来可点却没有任何反应。
+      if (id === activeId) setActiveId(next[0].id);
     },
-    [persist],
+    [sessions, activeId, persist],
   );
 
   // 活动会话兜底：被删后回退到首项（删除时保底重建，不会为空）

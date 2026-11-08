@@ -9,6 +9,7 @@ import { showErrorToast } from "@/lib/api-error-handler";
 import { useT } from "@/lib/i18n";
 import type { HarnessRuleItem } from "@/lib/types";
 import { PageHeader } from "@/components/page-header";
+import { PermissionGuard } from "@/components/permission-guard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,7 +49,7 @@ interface RuleDraft {
 
 const EMPTY_DRAFT: RuleDraft = { pattern: "", name: "" };
 
-export default function HarnessPage() {
+function HarnessPageContent() {
   const t = useT();
   const [rules, setRules] = useState<HarnessRuleItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -281,5 +282,15 @@ export default function HarnessPage() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+// Harness 规则是 admin-only 能力：导航已隐藏入口，但直接输入 URL 仍需页面级守卫，
+// 否则普通用户/demo 能打开页面并发起 admin 接口请求。
+export default function HarnessPage() {
+  return (
+    <PermissionGuard adminOnly>
+      <HarnessPageContent />
+    </PermissionGuard>
   );
 }

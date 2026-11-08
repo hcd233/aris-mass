@@ -2,6 +2,7 @@
 
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { showErrorToast } from "@/lib/api-error-handler";
+import { clampPage } from "@/lib/pagination";
 import type { PageInfo } from "@/lib/types";
 import { useRequestSeq } from "@/hooks/use-request-seq";
 
@@ -85,12 +86,28 @@ export function usePaginatedList<T, Q = void, X = undefined>(
       const seq = requestSeq.begin();
       if (!silent) setLoading(true);
       try {
-        const rsp = await fetchPage(page, pageSize, query);
+        let rsp = await fetchPage(page, pageSize, query);
         if (!requestSeq.isCurrent(seq)) return undefined;
         if (rsp.error) {
           if (errorTitle !== undefined) showErrorToast(rsp.error, { title: errorTitle });
           return undefined;
         }
+
+        // 页码来自 localStorage，数据被删或他人删除后可能超过总页数。
+        // 不钳制会永远停在空页（分页条仍显示旧页码），这里按服务端 total 重取末页。
+        const total = Number(rsp.pageInfo?.total ?? 0);
+        const size = rsp.pageInfo?.pageSize ?? pageSize;
+        const targetPage = clampPage(rsp.pageInfo?.page ?? page, total, size);
+        if (rsp.pageInfo && targetPage !== rsp.pageInfo.page) {
+          const clamped = await fetchPage(targetPage, size, query);
+          if (!requestSeq.isCurrent(seq)) return undefined;
+          if (clamped.error) {
+            if (errorTitle !== undefined) showErrorToast(clamped.error, { title: errorTitle });
+            return undefined;
+          }
+          rsp = clamped;
+        }
+
         setItems(rsp.items ?? []);
         if (rsp.pageInfo) {
           setPageInfo(rsp.pageInfo);

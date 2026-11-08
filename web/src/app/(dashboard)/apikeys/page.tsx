@@ -92,7 +92,8 @@ export default function APIKeysPage() {
   /* eslint-enable react-hooks/exhaustive-deps */
 
   const handleCreate = async () => {
-    if (!newKeyName.trim()) return;
+    // 单飞：回车与按钮共用同一入口，重复触发会创建多把 Key 且只保留最后一次明文
+    if (!newKeyName.trim() || creating) return;
     setCreating(true);
     try {
       const rsp = await api.createAPIKey({ name: newKeyName.trim() });
@@ -191,7 +192,7 @@ export default function APIKeysPage() {
                         value={newKeyName}
                         onChange={(e) => setNewKeyName(e.target.value)}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter") handleCreate();
+                          if (e.key === "Enter" && !creating) handleCreate();
                         }}
                       />
                     </div>

@@ -17,7 +17,7 @@ _Avoid_: role, role group
 _Avoid_: guest account, trial account, sandbox user
 
 **DemoConfig（演示配置）**:
-Demo 演示行为的单行配置表（`demo_configs`，固定 ID=1）：`loginEnabled`（登录入口开关，关闭后登录页按钮隐藏且登录接口拒绝）、`sampleModulus`（行为数据取模抽样模数，SQL `id % K == 0`，最小 2——demo 不能看全量真实数据；作用于 sessions 列表/详情/筛选选项及模型审计日志/筛选选项/聚合图表，详情类接口对非抽样 sessionID 返回不存在以防遍历越权）、`modules`（开放模块白名单：dashboard/sessions/audit/models/trigger/endpoints/monitor/cron/cron_audit；配置类数据与运行指标全量只读，无隐私问题）。读取失败 fail-closed（模块关闭、请求拒绝）。admin 经 `PATCH /api/web/v1/demo/config` 修改；任意登录用户可读（前端渲染 demo 导航用）。
+Demo 演示行为的单行配置表（`demo_configs`，固定 ID=1）：`loginEnabled`（登录入口开关，关闭后登录页按钮隐藏且登录接口拒绝）、`modules`（开放模块白名单：dashboard/sessions/audit/upstream/trigger/monitor/cron/cron_audit；配置类数据与运行指标全量只读，无隐私问题）。demo 可读的会话由独立的 `demo_sessions` 白名单控制（admin 在 sessions 页逐条加入/移出），不存在取模抽样。读取失败 fail-closed（模块关闭、请求拒绝）。admin 经 `PATCH /api/web/v1/demo/config` 修改；任意登录用户可读（前端渲染 demo 导航用）。
 _Avoid_: demo settings, showcase config
 
 **ProxyAPIKey（代理密钥）**:

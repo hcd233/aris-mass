@@ -3,7 +3,6 @@
 import { AlertTriangle } from "lucide-react";
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -11,6 +10,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import { useT } from "@/lib/i18n";
 
 interface DeleteConfirmDialogProps {
@@ -42,7 +42,15 @@ export function DeleteConfirmDialog({
 }: DeleteConfirmDialogProps) {
   const t = useT();
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
+    <AlertDialog
+      open={open}
+      onOpenChange={(next) => {
+        // 执行中不接受 Esc / 遮罩 / 取消关闭：避免请求还在飞、弹窗已消失，
+        // loading 文案与失败重试路径全部不可见。
+        if (loading && !next) return;
+        onOpenChange(next);
+      }}
+    >
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle className="flex items-center gap-2">
@@ -52,10 +60,11 @@ export function DeleteConfirmDialog({
           <AlertDialogDescription className="break-words">{description}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-          <AlertDialogAction variant="destructive" onClick={onConfirm} disabled={loading}>
+          <AlertDialogCancel disabled={loading}>{t("common.cancel")}</AlertDialogCancel>
+          {/* 不用 AlertDialogAction：它本质是 Close，点击即关闭，loading 态永远不可见 */}
+          <Button variant="destructive" onClick={onConfirm} disabled={loading}>
             {loading && loadingLabel ? loadingLabel : confirmLabel}
-          </AlertDialogAction>
+          </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

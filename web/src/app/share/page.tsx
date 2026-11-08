@@ -111,6 +111,8 @@ function SharedSessionView() {
       return;
     }
     setLoading(true);
+    // 切换 shareID 后必须清掉上一次的错误态，否则渲染顺序（error 优先于 loading/metadata）会停在旧错误页
+    setError(null);
     try {
       const rsp = await api.getShareMetadata(shareID);
       if (rsp.error || !rsp.session) {

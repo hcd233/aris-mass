@@ -69,6 +69,19 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
+	// 先探测目标目录可写再下载：否则系统级安装（/usr/local/bin 等）会白等一次 64MB 下载，
+	// 最后才在 CreateTemp 处报 permission denied。
+	targetPath := opts.BinaryPath
+	if targetPath == "" {
+		targetPath, err = executable.Path()
+		if err != nil {
+			return err
+		}
+	}
+	if err := ensureWritableDir(filepath.Dir(targetPath)); err != nil {
+		return err
+	}
+
 	var binary []byte
 	title := fmt.Sprintf(constant.ArisClientUpdateDownloadingFormat, latest)
 	err = ui.RunWithSpinner(in, out, title, func() error {
@@ -86,7 +99,7 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
-	installed, err := replaceSelf(opts.BinaryPath, binary)
+	installed, err := replaceSelf(targetPath, binary)
 	if err != nil {
 		return err
 	}
@@ -108,6 +121,10 @@ func Latest(ctx context.Context, base string, hc *http.Client) (string, error) {
 	var redirectURL *url.URL
 	client := *hc
 	client.CheckRedirect = func(next *http.Request, _ []*http.Request) error {
+		// 覆盖 hc 的逐跳校验后必须自己补上：否则探测可被重定向到任意明文源
+		if err := validateBaseURL(next.URL.Scheme + "://" + next.URL.Host); err != nil {
+			return err
+		}
 		redirectURL = next.URL
 		return http.ErrUseLastResponse
 	}
@@ -259,9 +276,14 @@ func extractBinary(archive []byte) ([]byte, error) {
 		if header.Name != constant.ArisClientBinaryFileName {
 			continue
 		}
-		binary, err := io.ReadAll(io.LimitReader(tarReader, constant.ArisClientUpdateMaxArchiveBytes))
+		// 多读 1 字节：LimitReader 达到上限不会报错，超限必须显式拒绝，
+		// 否则压缩比高的归档可以解出超过上限的二进制并被静默截断安装。
+		binary, err := io.ReadAll(io.LimitReader(tarReader, constant.ArisClientUpdateMaxArchiveBytes+1))
 		if err != nil {
 			return nil, ierr.Wrap(ierr.ErrValidation, err, "extract aris binary")
+		}
+		if int64(len(binary)) > constant.ArisClientUpdateMaxArchiveBytes {
+			return nil, ierr.Newf(ierr.ErrValidation, constant.ArisClientUpdateBinaryTooLargeFormat, constant.ArisClientUpdateMaxArchiveBytes)
 		}
 		return binary, nil
 	}
@@ -312,6 +334,18 @@ func replaceSelf(targetPath string, binary []byte) (string, error) {
 		_ = handle.Close() //nolint:errcheck // best-effort close
 	}
 	return targetPath, nil
+}
+
+// ensureWritableDir 预检目标目录可写：创建并删除一个临时探针文件，失败即提前返回。
+func ensureWritableDir(dir string) error {
+	probe, err := os.CreateTemp(dir, constant.ArisClientUpdateProbePattern)
+	if err != nil {
+		return ierr.Wrap(ierr.ErrInternal, err, "target directory is not writable")
+	}
+	name := probe.Name()
+	_ = probe.Close()   //nolint:errcheck // probe 只用于探测可写性
+	_ = os.Remove(name) //nolint:errcheck // best-effort cleanup
+	return nil
 }
 
 // resolveBaseURL 解析更新源并校验：显式参数 > ARIS_UPDATE_BASE_URL > 内置默认

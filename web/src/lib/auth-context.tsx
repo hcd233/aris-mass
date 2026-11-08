@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api } from "./api-client";
+import { AUTH_EXPIRED_EVENT, api } from "./api-client";
 import { normalizeDemoModules } from "./demo-modules";
 import type { DemoModule, DetailedUser, OAuth2Provider } from "./types";
 
@@ -137,6 +137,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setDemoModules(null);
   }, []);
+
+  // api-client 在刷新失败时清 storage 并广播；同步清 React 内存态，
+  // 否则守卫仍按「已登录」渲染，后续每个请求都会再触发一次 401。
+  useEffect(() => {
+    const onExpired = () => {
+      setAccessToken(null);
+      setUser(null);
+      setDemoModules(null);
+    };
+    window.addEventListener(AUTH_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired);
+  }, []);
+
+  // demo 授权是登录时的一次性快照；回到前台时重新拉取，避免管理员关闭模块后
+  // 长开标签页仍显示「可进入」而后端已拒绝。
+  useEffect(() => {
+    if (user?.permission !== "demo") return;
+    const refreshOnVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      void api
+        .getDemoConfig()
+        .then((rsp) => setDemoModules(normalizeDemoModules(rsp.config?.modules)))
+        .catch(() => {
+          // 读取失败保持当前快照，登录时的 fail-closed 逻辑仍然生效
+        });
+    };
+    document.addEventListener("visibilitychange", refreshOnVisible);
+    return () => document.removeEventListener("visibilitychange", refreshOnVisible);
+  }, [user?.permission]);
 
   const isAdmin = useCallback(() => user?.permission === "admin", [user]);
   const isUser = useCallback(

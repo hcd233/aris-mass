@@ -61,3 +61,32 @@ func TestStoreLoadsLegacyTracePath(t *testing.T) {
 		t.Fatalf("load legacy = %+v, want %+v", got, want)
 	}
 }
+
+// TestStoreFallsBackToLegacyWhenPrimaryCorrupt 新路径存在但内容损坏（例如写到一半）时
+// 必须回退旧路径，否则升级用户会因为一次坏写丢掉仍然可用的 legacy 配置。
+func TestStoreFallsBackToLegacyWhenPrimaryCorrupt(t *testing.T) {
+	t.Parallel()
+	paths := testPaths(t)
+	if err := os.MkdirAll(paths.Root, 0o700); err != nil {
+		t.Fatalf("mkdir root: %v", err)
+	}
+	if err := os.WriteFile(paths.ConfigFile(), []byte(`{"host":`), 0o600); err != nil {
+		t.Fatalf("write corrupt primary: %v", err)
+	}
+	legacy := filepath.Join(paths.Root, "trace", constant.ArisClientConfigFileName)
+	if err := os.MkdirAll(filepath.Dir(legacy), 0o700); err != nil {
+		t.Fatalf("mkdir legacy dir: %v", err)
+	}
+	if err := os.WriteFile(legacy, []byte(`{"host":"https://legacy.example.com","apiKey":"sk-legacy"}`), 0o600); err != nil {
+		t.Fatalf("write legacy config: %v", err)
+	}
+
+	got, err := clientconfig.NewStore(paths).Load(t.Context())
+	if err != nil {
+		t.Fatalf("load with corrupt primary: %v", err)
+	}
+	want := clientconfig.Config{Host: "https://legacy.example.com", APIKey: "sk-legacy"}
+	if got != want {
+		t.Fatalf("load = %+v, want legacy %+v", got, want)
+	}
+}
