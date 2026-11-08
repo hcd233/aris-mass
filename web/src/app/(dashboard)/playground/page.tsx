@@ -323,6 +323,8 @@ function PlaygroundPage() {
 
   const handleNewSession = useCallback(() => {
     const s = newSession();
+    // 必须用 updater 串行化连续点击；persist 放在 updater 内是为拿到 next 的最小改动，
+    // 重复执行只会重复写同一份数据（幂等）。
     setSessions((prev) => {
       const next = upsertSession(prev, s);
       persist(next);
@@ -339,13 +341,11 @@ function PlaygroundPage() {
 
   const handleRenameSession = useCallback(
     (id: string, title: string) => {
-      setSessions((prev) => {
-        const next = prev.map((s) => (s.id === id ? { ...s, title } : s));
-        persist(next);
-        return next;
-      });
+      const next = sessions.map((s) => (s.id === id ? { ...s, title } : s));
+      setSessions(next);
+      persist(next);
     },
-    [persist],
+    [sessions, persist],
   );
 
   const handleDeleteSession = useCallback(
