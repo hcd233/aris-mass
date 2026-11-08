@@ -136,7 +136,8 @@ func promptAPIKey(in io.Reader, out io.Writer, existing string) (string, error) 
 }
 
 func checkHealthWithRetry(ctx context.Context, client *api.Client, ttyIn io.Reader, ttyOut, out io.Writer, host string) error {
-	for {
+	// 有上限：client/host 在循环外定型，无上限时输错地址会永远重试同一个值
+	for attempt := range constant.ArisClientInitMaxRetries {
 		var latency time.Duration
 		err := ui.RunWithSpinner(ttyIn, ttyOut, fmt.Sprintf(constant.ArisClientInitConnectingFormat, host), func() error {
 			var checkErr error
@@ -148,6 +149,10 @@ func checkHealthWithRetry(ctx context.Context, client *api.Client, ttyIn io.Read
 			return nil
 		}
 		printLine(out, ui.CheckRowFail(host, err.Error()))
+		if attempt == constant.ArisClientInitMaxRetries-1 {
+			printLine(out, constant.ArisClientInitHostRetryHint)
+			return err
+		}
 		retry, confirmErr := confirm(ttyIn, ttyOut, constant.ArisClientInitRetryPrompt)
 		if confirmErr != nil {
 			return confirmErr
@@ -156,10 +161,12 @@ func checkHealthWithRetry(ctx context.Context, client *api.Client, ttyIn io.Read
 			return err
 		}
 	}
+	return nil
 }
 
 func checkAPIKeyWithRetry(ctx context.Context, client *api.Client, ttyIn io.Reader, ttyOut, out io.Writer) error {
-	for {
+	// 与健康检查同理：key 在循环外定型，必须有重试上限并提示改用 env/重新 init
+	for attempt := range constant.ArisClientInitMaxRetries {
 		err := ui.RunWithSpinner(ttyIn, ttyOut, constant.ArisClientInitValidatingKey, func() error {
 			return client.CheckAPIKey(ctx)
 		})
@@ -168,6 +175,10 @@ func checkAPIKeyWithRetry(ctx context.Context, client *api.Client, ttyIn io.Read
 			return nil
 		}
 		printLine(out, ui.CheckRowFail(constant.ArisClientInitAPIKeyFailed, err.Error()))
+		if attempt == constant.ArisClientInitMaxRetries-1 {
+			printLine(out, constant.ArisClientInitAPIKeyRetryHint)
+			return err
+		}
 		retry, confirmErr := confirm(ttyIn, ttyOut, constant.ArisClientInitAPIKeyRetryPrompt)
 		if confirmErr != nil {
 			return confirmErr
@@ -176,6 +187,7 @@ func checkAPIKeyWithRetry(ctx context.Context, client *api.Client, ttyIn io.Read
 			return err
 		}
 	}
+	return nil
 }
 
 // terminalIO 解析交互终端：stdin 是 TTY 直接用；否则打开 /dev/tty（curl|sh 场景）

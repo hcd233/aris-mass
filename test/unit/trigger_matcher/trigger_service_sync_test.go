@@ -19,9 +19,10 @@ import (
 )
 
 type fakeRepo struct {
-	mu    sync.RWMutex
-	items []*aggregate.Trigger
-	err   error
+	mu        sync.RWMutex
+	items     []*aggregate.Trigger
+	err       error
+	listCalls int
 }
 
 func (f *fakeRepo) FindByID(ctx context.Context, id uint) (*aggregate.Trigger, error) {
@@ -35,12 +36,20 @@ func (f *fakeRepo) Paginate(ctx context.Context, p model.CommonParam) ([]*aggreg
 	return nil, nil, nil
 }
 func (f *fakeRepo) ListAll(ctx context.Context) ([]*aggregate.Trigger, error) {
-	f.mu.RLock()
-	defer f.mu.RUnlock()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.listCalls++
 	if f.err != nil {
 		return nil, f.err
 	}
 	return f.items, nil
+}
+
+// callCount 测试辅助：返回 ListAll 被调用的次数。
+func (f *fakeRepo) callCount() int {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.listCalls
 }
 func (f *fakeRepo) BatchIncrementHitCount(ctx context.Context, m map[uint]uint) error { return nil }
 
@@ -241,5 +250,31 @@ func TestTriggerService_syncLoop_LowFreqFallback(t *testing.T) {
 			t.Fatal("expected low-frequency rebuild to pick up new words")
 		}
 		<-ticker.C
+	}
+}
+
+// TestTriggerService_checkVersion_BackoffAfterFailure DB 故障时版本轮询会每 2s
+// 触发一次重建；失败后必须进入退避窗口，不能在下一个 tick 继续打 DB。
+func TestTriggerService_checkVersion_BackoffAfterFailure(t *testing.T) {
+	t.Parallel()
+	mr := miniredis.RunT(t)
+	rc := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	defer rc.Close()
+
+	repo := newHelloRepo()
+	svc := trigger.NewTriggerService(repo, nil, rc)
+	repo.setErr(ierr.New(ierr.ErrDBQuery, "boom"))
+
+	svc.NotifyChanged(context.Background()) // version=1
+	svc.CheckVersionForTest(context.Background())
+	first := repo.callCount()
+	if first != 1 {
+		t.Fatalf("expected one rebuild attempt, got %d", first)
+	}
+
+	svc.NotifyChanged(context.Background()) // version=2，仍在退避窗口内
+	svc.CheckVersionForTest(context.Background())
+	if got := repo.callCount(); got != first {
+		t.Fatalf("expected no rebuild during backoff, got %d calls (first %d)", got, first)
 	}
 }
