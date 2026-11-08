@@ -141,7 +141,11 @@ func saveJWTUserCache(ctx context.Context, cache *redis.Client, cacheKey, name s
 	if marshalErr != nil {
 		return
 	}
-	if setErr := cache.Set(ctx, cacheKey, cacheVal, config.JwtAccessTokenExpired).Err(); setErr != nil {
+	ttl := config.JwtAccessTokenExpired
+	if ttl <= 0 || ttl > constant.JWTUserCacheMaxTTL {
+		ttl = constant.JWTUserCacheMaxTTL
+	}
+	if setErr := cache.Set(ctx, cacheKey, cacheVal, ttl).Err(); setErr != nil {
 		logger.WithCtx(ctx).Warn("[JwtMiddleware] Failed to cache user info", zap.Error(setErr))
 	}
 }
