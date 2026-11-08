@@ -809,6 +809,8 @@
 | 2 | `6b56c1b5` | Web：Upstream OAuth 加 generation 与授权窗口引用，切换 provider/关闭弹窗后丢弃旧响应。CLI：init 健康检查与 Key 校验加 5 次上限并给出改 host/Key 的提示。API：trigger 重建失败进入 10s 退避。 |
 | 3 | `ec8d57c0` | Web：demo 配置加载失败展示错误态 + 重试；模型规格导入按名字丢弃过期响应。 |
 | 4 | `b82694d5` | API：`jwt:user` 权限缓存封顶 5 分钟，让直接改库的权限变更有限时间内收敛。 |
+| 5 | `77856715` | Web：sessions/trigger 翻页、改页大小、排序时清空批量选择，trigger 批量删除后也清空。 |
+| 6 | `56c72692` | Web：会话重命名移出 state updater，避免渲染阶段写 localStorage。 |
 
 ### 明确保留、未修
 
@@ -818,8 +820,7 @@
 | `aris update` 安装后固定 0700 | `TestRunInstallsBinaryWithOwnerMode` 守护的安装契约 |
 | 审计跨端点 fallback 只记终局 | 设计如此（中间失败暂存后丢弃） |
 | `aris status` 健康失败仍 exit 0 | 退出码属于对外契约，改动会影响现有脚本，留待产品决策 |
-| Web 列表跨页选择残留 | UX 语义未定（清空 vs 标注跨页选择） |
-| Playground localStorage 写入仍在 state updater 内 | 需重构持久化时机，超出本次缺陷修复范围 |
+| Playground 新建会话/finalize 仍在 state updater 内写 localStorage | 新建会话需要 updater 串行化连续点击；finalize 在流式高频路径上，重构持久化时机风险大于收益 |
 | DSH 双文件一致性 | 需要 journal/校验设计，属于新机制而非局部修复 |
 | Codex TOML 行扫描 | 需引入解析器，改动面大 |
 | 会话终态清理 30min 阈值 | 运营参数，需产品给定可配置口径 |
