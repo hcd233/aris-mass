@@ -14,6 +14,7 @@ import en from "@/locales/en.json";
 import zh from "@/locales/zh.json";
 import ja from "@/locales/ja.json";
 import { startLocaleTransition } from "@/lib/motion/locale-transition";
+import type { Point } from "@/lib/motion/theme-transition";
 
 export type Locale = "en" | "zh" | "ja";
 
@@ -31,7 +32,8 @@ function detectBrowserLocale(): Locale {
 
 interface I18nContextValue {
   locale: Locale;
-  setLocale: (locale: Locale) => void;
+  /** `origin` (viewport px) anchors the soft-edge reveal; omit for a cross-fade. */
+  setLocale: (locale: Locale, origin?: Point) => void;
   t: (key: string, fallback?: string) => string;
 }
 
@@ -57,15 +59,16 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   }, []);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  const setLocale = useCallback((next: Locale) => {
+  const setLocale = useCallback((next: Locale, origin?: Point) => {
+    if (next === activeLocaleRef.current) return;
     const apply = () => {
       activeLocaleRef.current = next;
       document.documentElement.lang = next;
       setLocaleState(next);
     };
     localStorage.setItem("locale", next);
-    // 整页交叉淡化；不支持 View Transitions 或 still 档时直接切换
-    if (!startLocaleTransition(apply)) apply();
+    // 带 origin 时从点击处软边晕开，否则整页交叉淡化；不支持 View Transitions 或 still 档时直接切换
+    if (!startLocaleTransition(apply, origin)) apply();
   }, []);
 
   const t = useCallback((key: string, fallback?: string): string => {

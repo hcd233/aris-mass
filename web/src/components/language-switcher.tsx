@@ -15,10 +15,10 @@ import { cn } from "@/lib/utils";
 import type { PreferenceTone } from "@/components/theme/theme-switcher";
 
 /// Add entries here when adding a new language.
-export const LANGUAGE_LABELS: Record<Locale, { native: string; short: string }> = {
+const LANGUAGE_LABELS: Record<Locale, { native: string; short: string }> = {
   en: { native: "English", short: "EN" },
   zh: { native: "中文", short: "中" },
-  ja: { native: "日本語", short: "日" },
+  ja: { native: "日本語", short: "あ" },
 };
 
 export const LOCALE_LIST = Object.entries(LANGUAGE_LABELS) as [

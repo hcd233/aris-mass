@@ -620,14 +620,51 @@ html[data-login-seen] .login-stage {
 
 /* ---------------------------------------------------------------------
  * ⑥ Locale switch — lib/motion/locale-transition.ts sets
- *    html[data-locale-vt]. A plain cross-fade of the root snapshot: layout
- *    is Locale-Stable, so the old and new glyphs overlap in place. The UA
- *    plus-lighter blend is kept so the mid-point never dips in brightness.
+ *    html[data-locale-vt="fade" | "reveal"] (+ --lvt-x / --lvt-y / --lvt-r).
+ *    Layout is Locale-Stable, so the old and new glyphs overlap in place.
+ *    fade:   plain cross-fade; the UA plus-lighter blend is kept so the
+ *            mid-point never dips in brightness.
+ *    reveal: the new language spreads from the clicked control behind a
+ *            soft 120px edge — the theme switch's gesture without the
+ *            color change.
  *    :not([data-vt]) yields to a theme transition started on top of it.
  * ------------------------------------------------------------------- */
-html[data-locale-vt]:not([data-vt])::view-transition-group(root),
-html[data-locale-vt]:not([data-vt])::view-transition-old(root),
-html[data-locale-vt]:not([data-vt])::view-transition-new(root) {
+@property --lvt-p {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+html[data-locale-vt="fade"]:not([data-vt])::view-transition-group(root),
+html[data-locale-vt="fade"]:not([data-vt])::view-transition-old(root),
+html[data-locale-vt="fade"]:not([data-vt])::view-transition-new(root) {
   animation-duration: 240ms;
   animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+html[data-locale-vt="reveal"]:not([data-vt])::view-transition-old(root),
+html[data-locale-vt="reveal"]:not([data-vt])::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+html[data-locale-vt="reveal"]:not([data-vt])::view-transition-new(root) {
+  -webkit-mask-image: radial-gradient(
+    circle at var(--lvt-x) var(--lvt-y),
+    #000 calc(var(--lvt-p) - 120px),
+    transparent var(--lvt-p)
+  );
+  mask-image: radial-gradient(
+    circle at var(--lvt-x) var(--lvt-y),
+    #000 calc(var(--lvt-p) - 120px),
+    transparent var(--lvt-p)
+  );
+  animation: locale-reveal 620ms cubic-bezier(0.45, 0, 0.2, 1) both;
+}
+@keyframes locale-reveal {
+  from {
+    --lvt-p: 0px;
+  }
+  to {
+    --lvt-p: calc(var(--lvt-r) + 140px);
+  }
 }

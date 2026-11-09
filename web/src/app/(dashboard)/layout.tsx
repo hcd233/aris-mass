@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { useI18n, useT, type Locale } from "@/lib/i18n";
-import { useTheme } from "@/lib/theme";
+import { useTheme, type ThemePreference } from "@/lib/theme";
 import {
   NAV_GROUPS,
   findActiveGroupKey,
@@ -38,36 +38,24 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { LANGUAGE_LABELS, LOCALE_LIST } from "@/components/language-switcher";
-import { centerOf } from "@/components/theme/theme-switcher";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { CapsuleSwitch, type CapsuleOption } from "@/components/capsule-switch";
+import { LOCALE_LIST } from "@/components/language-switcher";
 import { NavIndicator } from "@/components/motion/nav-indicator";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { NavCommandPalette, NavSearchButton } from "@/components/nav-command-palette";
 import {
   ChevronDown,
   ChevronsUpDown,
-  Feather,
-  Languages,
   Lock,
   LogOut,
   Menu,
+  Monitor,
+  Moon,
   PanelLeftClose,
   PanelLeftOpen,
   Search,
-  Sparkles,
+  Sun,
 } from "lucide-react";
 import { TruncatedText } from "@/components/truncated-text";
 import { cn } from "@/lib/utils";
@@ -232,8 +220,7 @@ function UserBar({ collapsed = false }: { collapsed?: boolean }) {
   const { user, logout } = useAuth();
   const t = useT();
   const { locale, setLocale } = useI18n();
-  const { theme, setTheme } = useTheme();
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const { theme, preference, setPreference } = useTheme();
 
   if (!user) return null;
 
@@ -255,15 +242,35 @@ function UserBar({ collapsed = false }: { collapsed?: boolean }) {
     </Avatar>
   );
 
-  const nextTheme = theme === "moonshot" ? "anthropic" : "moonshot";
-  const themeLabel = theme === "moonshot" ? t("theme.to_anthropic") : t("theme.to_moonshot");
-  const ThemeIcon = theme === "moonshot" ? Feather : Sparkles;
+  const dayLabel = t("theme.day");
+  const nightLabel = t("theme.night");
+  const themeOptions: CapsuleOption<ThemePreference>[] = [
+    { value: "anthropic", label: dayLabel, content: <Sun /> },
+    { value: "moonshot", label: nightLabel, content: <Moon /> },
+    {
+      value: "system",
+      // 跟随系统时注明当前实际生效的是哪个
+      label:
+        preference === "system"
+          ? t("theme.system_current").replace(
+              "{theme}",
+              theme === "moonshot" ? nightLabel : dayLabel,
+            )
+          : t("theme.system"),
+      content: <Monitor />,
+    },
+  ];
+  const localeOptions: CapsuleOption<Locale>[] = LOCALE_LIST.map(([code, lang]) => ({
+    value: code,
+    label: lang.native,
+    content: lang.short,
+  }));
 
-  // 底部只留一行身份：语言、主题、登出收进账户菜单。窄栏只剩头像，点开是同一个菜单。
+  // 底部只留一行身份；语言、主题、登出收进与侧栏同款的弹层。窄栏只剩头像，点开是同一个弹层。
+  // 用 Popover 而非 Menu：胶囊是单选组，点选后弹层保持打开，Tab 能在控件间正常移动。
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        ref={triggerRef}
+    <Popover>
+      <PopoverTrigger
         aria-label={t("layout.account_menu")}
         className={cn(
           "flex items-center rounded-lg text-left text-sidebar-foreground outline-hidden transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring data-popup-open:bg-sidebar-accent",
@@ -288,69 +295,73 @@ function UserBar({ collapsed = false }: { collapsed?: boolean }) {
             <ChevronsUpDown className="size-4 shrink-0 text-sidebar-foreground/50" />
           </>
         )}
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
+      </PopoverTrigger>
+      <PopoverContent
         side={collapsed ? "right" : "top"}
-        align="end"
-        sideOffset={collapsed ? 8 : 6}
-        className="w-auto min-w-(--anchor-width) sm:min-w-56"
+        align={collapsed ? "end" : "start"}
+        sideOffset={collapsed ? 10 : 6}
+        className={cn(
+          "gap-0 rounded-lg bg-sidebar p-1 text-sidebar-foreground shadow-lg ring-sidebar-border backdrop-blur-xl",
+          collapsed ? "w-60" : "w-(--anchor-width)",
+        )}
       >
-        <div className="flex items-center gap-2.5 px-1.5 py-1.5">
-          {avatar}
-          <div className="min-w-0 flex-1">
-            <TruncatedText render={<p />} className="text-sm leading-tight font-medium" side="top">
-              {name}
-            </TruncatedText>
-            {user.email && user.email !== name ? (
+        <TooltipProvider>
+          <div className="flex items-center gap-2.5 px-2 pt-1.5 pb-2">
+            {avatar}
+            <div className="min-w-0 flex-1">
               <TruncatedText
                 render={<p />}
-                className="mt-0.5 text-xs leading-tight text-muted-foreground"
+                className="text-sm leading-tight font-medium"
                 side="top"
               >
-                {user.email}
+                {name}
               </TruncatedText>
-            ) : (
-              <p className="mt-0.5 text-xs leading-tight text-muted-foreground">{role}</p>
-            )}
+              {user.email && user.email !== name ? (
+                <TruncatedText
+                  render={<p />}
+                  className="mt-0.5 text-xs leading-tight text-sidebar-foreground/70"
+                  side="top"
+                >
+                  {user.email}
+                </TruncatedText>
+              ) : (
+                <p className="mt-0.5 text-xs leading-tight text-sidebar-foreground/70">{role}</p>
+              )}
+            </div>
           </div>
-        </div>
-        <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <Languages />
-              <span className="flex-1">{t("layout.language")}</span>
-              <span className="text-xs text-muted-foreground">
-                {LANGUAGE_LABELS[locale].native}
-              </span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="min-w-32">
-              <DropdownMenuRadioGroup value={locale} onValueChange={(v) => setLocale(v as Locale)}>
-                {LOCALE_LIST.map(([code, lang]) => (
-                  <DropdownMenuRadioItem key={code} value={code}>
-                    {lang.native}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-          <DropdownMenuItem
-            onClick={() => {
-              const anchor = triggerRef.current;
-              setTheme(nextTheme, anchor ? centerOf(anchor) : undefined);
-            }}
+          <Separator className="-mx-1 my-1 w-auto bg-sidebar-border/70" />
+          <div className="flex h-9 items-center gap-2 pr-1 pl-2.5">
+            <span className="flex-1 text-sm text-sidebar-foreground/80">
+              {t("layout.language")}
+            </span>
+            <CapsuleSwitch
+              label={t("layout.language")}
+              value={locale}
+              options={localeOptions}
+              onChange={(next, origin) => setLocale(next, origin)}
+            />
+          </div>
+          <div className="flex h-9 items-center gap-2 pr-1 pl-2.5">
+            <span className="flex-1 text-sm text-sidebar-foreground/80">{t("layout.theme")}</span>
+            <CapsuleSwitch
+              label={t("layout.theme")}
+              value={preference}
+              options={themeOptions}
+              onChange={(next, origin) => setPreference(next, origin)}
+            />
+          </div>
+          <Separator className="-mx-1 my-1 w-auto bg-sidebar-border/70" />
+          <button
+            type="button"
+            onClick={logout}
+            className="flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-sm text-sidebar-foreground/80 outline-hidden transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring [&_svg]:size-4 [&_svg]:text-sidebar-foreground/60"
           >
-            <ThemeIcon />
-            {themeLabel}
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={logout}>
-          <LogOut />
-          {t("nav.logout")}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+            <LogOut />
+            {t("nav.logout")}
+          </button>
+        </TooltipProvider>
+      </PopoverContent>
+    </Popover>
   );
 }
 
