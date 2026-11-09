@@ -42,6 +42,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
+import { StateSwap } from "@/components/motion/state-swap";
 import { useT } from "@/lib/i18n";
 import { api } from "@/lib/api-client";
 import type { ModelCapability } from "@/lib/types";
@@ -269,11 +270,11 @@ export function ModelDialog({
               disabled={!form.upstreamModel.trim() || fetching}
               onClick={fetchSpec}
             >
-              {fetching ? (
-                <Spinner data-icon="inline-start" />
-              ) : (
-                <Download data-icon="inline-start" />
-              )}
+              <StateSwap
+                active={fetching}
+                off={<Download data-icon="inline-start" />}
+                on={<Spinner data-icon="inline-start" />}
+              />
               {t("models.spec_fetch")}
             </Button>
             {hint === "filled" && (

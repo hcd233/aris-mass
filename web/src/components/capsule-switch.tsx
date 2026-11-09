@@ -2,7 +2,7 @@
 
 import { useRef, type KeyboardEvent, type ReactNode } from "react";
 import { TooltipContent, TooltipRoot, TooltipTrigger } from "@/components/ui/tooltip";
-import type { Point } from "@/lib/motion/theme-transition";
+import { centerOf, type Point } from "@/lib/motion/theme-transition";
 import { cn } from "@/lib/utils";
 
 export interface CapsuleOption<T extends string> {
@@ -11,12 +11,6 @@ export interface CapsuleOption<T extends string> {
   label: string;
   /** Short glyph or icon rendered inside the cell. */
   content: ReactNode;
-}
-
-/** Viewport center of an element: the origin of the switch's page transition. */
-function centerOf(el: Element): Point {
-  const r = el.getBoundingClientRect();
-  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
 }
 
 /**
@@ -79,9 +73,10 @@ export function CapsuleSwitch<T extends string>({
         className,
       )}
     >
+      {/* 滑块的过渡曲线随动效世界走（纸与墨不回弹 / 月光弹簧），写在 motion-*.css 的 .capsule-thumb */}
       <span
         aria-hidden="true"
-        className="absolute top-0.5 left-0.5 h-6.5 w-7.5 rounded-full bg-sidebar shadow-[0_1px_2px_rgb(0_0_0/0.14),0_0_0_1px_color-mix(in_srgb,var(--sidebar-foreground)_8%,transparent)] transition-transform duration-300 ease-[cubic-bezier(0.3,1.35,0.5,1)] motion-reduce:transition-none"
+        className="capsule-thumb absolute top-0.5 left-0.5 h-6.5 w-7.5 rounded-full bg-sidebar shadow-[0_1px_2px_rgb(0_0_0/0.14),0_0_0_1px_color-mix(in_srgb,var(--sidebar-foreground)_8%,transparent)]"
         style={{ transform: `translateX(${index * 100}%)` }}
       />
       {options.map((option, i) => {

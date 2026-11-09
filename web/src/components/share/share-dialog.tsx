@@ -20,6 +20,8 @@ import { cn, formatExpiry } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Spinner } from "@/components/ui/spinner";
+import { LocaleStableText } from "@/components/locale-stable-text";
+import { StateSwap } from "@/components/motion/state-swap";
 import {
   Dialog,
   DialogClose,
@@ -154,8 +156,21 @@ export function ShareDialog({ sessionId, existingShareID, open, onOpenChange }: 
               />
               <InputGroupAddon align="inline-end">
                 <InputGroupButton onClick={handleCopy}>
-                  {copied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}
-                  {copied ? t("share_dialog.copied") : t("share_dialog.copy")}
+                  <StateSwap
+                    active={copied}
+                    off={
+                      <>
+                        <Copy data-icon="inline-start" />
+                        <LocaleStableText text={t("share_dialog.copy")} />
+                      </>
+                    }
+                    on={
+                      <>
+                        <Check data-icon="inline-start" />
+                        <LocaleStableText text={t("share_dialog.copied")} />
+                      </>
+                    }
+                  />
                 </InputGroupButton>
               </InputGroupAddon>
             </InputGroup>
@@ -234,17 +249,21 @@ export function ShareDialog({ sessionId, existingShareID, open, onOpenChange }: 
           </DialogClose>
           {!shareURL && (
             <Button type="button" onClick={createShare} disabled={creating}>
-              {creating ? (
-                <>
-                  <Spinner data-icon="inline-start" />
-                  {t("share_dialog.creating")}
-                </>
-              ) : (
-                <>
-                  <Share2 data-icon="inline-start" />
-                  {t("share_dialog.create_link")}
-                </>
-              )}
+              <StateSwap
+                active={creating}
+                off={
+                  <>
+                    <Share2 data-icon="inline-start" />
+                    <LocaleStableText text={t("share_dialog.create_link")} />
+                  </>
+                }
+                on={
+                  <>
+                    <Spinner data-icon="inline-start" />
+                    <LocaleStableText text={t("share_dialog.creating")} />
+                  </>
+                }
+              />
             </Button>
           )}
         </DialogFooter>

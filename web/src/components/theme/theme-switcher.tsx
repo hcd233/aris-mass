@@ -9,6 +9,7 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import { useT } from "@/lib/i18n";
+import { centerOf } from "@/lib/motion/theme-transition";
 import { useTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
@@ -19,12 +20,6 @@ export const PREFERENCE_TONE_CLASS: Record<PreferenceTone, string> = {
   page: "text-foreground/70 hover:bg-secondary hover:text-foreground",
   sidebar: "text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground",
 };
-
-/** Viewport center of the clicked switch: the theme transition's origin. */
-function centerOf(el: Element) {
-  const r = el.getBoundingClientRect();
-  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-}
 
 export function ThemeSwitcher({
   tone = "page",

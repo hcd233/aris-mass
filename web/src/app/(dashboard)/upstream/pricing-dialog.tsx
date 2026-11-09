@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
+import { StateSwap } from "@/components/motion/state-swap";
 import { useT } from "@/lib/i18n";
 import { api } from "@/lib/api-client";
 import type { PricingDTO } from "@/lib/types";
@@ -90,11 +91,11 @@ export function PricingDialog({
             disabled={!upstreamModel.trim() || importing}
             onClick={importPricing}
           >
-            {importing ? (
-              <Spinner data-icon="inline-start" />
-            ) : (
-              <Download data-icon="inline-start" />
-            )}
+            <StateSwap
+              active={importing}
+              off={<Download data-icon="inline-start" />}
+              on={<Spinner data-icon="inline-start" />}
+            />
             {t("upstream.pricing.fetch")}
           </Button>
           {importHint === "filled" && (

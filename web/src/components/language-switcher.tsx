@@ -1,6 +1,7 @@
 "use client";
 
 import { useI18n, type Locale } from "@/lib/i18n";
+import { centerOf } from "@/lib/motion/theme-transition";
 import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -68,7 +69,17 @@ export function LanguageSwitcher({
       </DropdownMenuTrigger>
       <DropdownMenuContent align={compact ? "start" : "end"} className="min-w-32">
         <DropdownMenuGroup>
-          <DropdownMenuRadioGroup value={locale} onValueChange={(v) => setLocale(v as Locale)}>
+          <DropdownMenuRadioGroup
+            value={locale}
+            onValueChange={(v, { event }) => {
+              // 与账户菜单的胶囊一致：新语言从点中的菜单项晕开（找不到时退回整页淡入淡出）
+              const item =
+                event.target instanceof Element
+                  ? event.target.closest('[role="menuitemradio"]')
+                  : null;
+              setLocale(v as Locale, item ? centerOf(item) : undefined);
+            }}
+          >
             {LOCALE_LIST.map(([code, lang]) => (
               <DropdownMenuRadioItem key={code} value={code}>
                 {lang.native}

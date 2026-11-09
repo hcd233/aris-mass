@@ -12,6 +12,8 @@ import type { MouseEvent } from "react";
 import { Check, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { LocaleStableText } from "@/components/locale-stable-text";
+import { StateSwap } from "@/components/motion/state-swap";
 import { cn } from "@/lib/utils";
 import { useCopyFeedback } from "@/hooks/use-copy-feedback";
 import { useT } from "@/lib/i18n";
@@ -37,27 +39,34 @@ export function CopyButton({ value, ariaLabel, variant = "label", className }: C
     });
   };
 
-  const Icon = copied ? Check : Copy;
+  const labeled = variant === "label";
 
   return (
     <Button
       type="button"
       variant="ghost"
-      size={variant === "label" ? "xs" : "icon-xs"}
+      size={labeled ? "xs" : "icon-xs"}
       onClick={onCopy}
       disabled={!value}
       aria-label={ariaLabel ?? t("markdown.copy")}
       // min-w-0：抵消 xs 尺寸的 i18n 宽度预留，复制按钮跟随内容宽度
       className={cn("min-w-0", className)}
     >
-      {variant === "label" ? (
-        <>
-          <Icon data-icon="inline-start" />
-          {copied ? t("markdown.copied") : t("markdown.copy")}
-        </>
-      ) : (
-        <Icon />
-      )}
+      <StateSwap
+        active={copied}
+        off={
+          <>
+            <Copy data-icon={labeled ? "inline-start" : undefined} />
+            {labeled && <LocaleStableText text={t("markdown.copy")} />}
+          </>
+        }
+        on={
+          <>
+            <Check data-icon={labeled ? "inline-start" : undefined} />
+            {labeled && <LocaleStableText text={t("markdown.copied")} />}
+          </>
+        }
+      />
     </Button>
   );
 }

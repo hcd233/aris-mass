@@ -63,6 +63,11 @@
 
 - **组件动效写在语法层**：通用组件的进出场、按压、悬停动效只写在 `src/styles/motion-{anthropic,moonshot}.css`，按 `data-slot`（shadcn 自带）、`data-variant`（`Button` 输出）、`data-interactive`（可倾斜/可抬起的卡片，按需在业务处标记）命中。`components/ui/` 的弹层组件不再使用 tw-animate 的 `data-open:animate-in` 一类类名，新增弹层时同样不要加，而是在两份语法层里各补一组规则。例外：`Drawer` 的 popup 位移与过渡由下滑手势驱动（`--drawer-swipe-movement-*` 等变量），语法层只给 `drawer-overlay` 补底色，不要覆盖 `drawer-popup` 的 transform / transition。
 - **新增 shadcn 组件不要直接 `shadcn add`**：CLI 会顺带 `npm install` 依赖清单（含 npm 包 `cn`、无版本号的 `@base-ui/react`），并可能覆盖已定制的 `button.tsx` 等文件。做法是 `shadcn add <name> --dry-run --view src/components/ui/<name>.tsx` 取源码落盘，把 `from "cn"` 改为 `@/lib/utils`，删掉 tw-animate 进出场类，再按需 `npm install --package-lock-only` 单独加真正需要的依赖。CI 按 lock 安装的 `shadcn` 是 4.8.0，其 `tailwind.css` 只提供 `no-scrollbar`；生成代码里的 `scroll-fade-*`、`shimmer`、`scrollbar-*` 在 CI 构建中是空操作，落盘时一并删掉。`src/components/shadcn-native.test.ts` 守护这些规范。
+- **状态切换（勾选 / 取消、分段、按钮状态）也走语法层**，两套世界必须同时覆盖（`src/lib/motion/grammar.test.ts` 守护）：
+  - **勾选指示器**（`checkbox-indicator`、菜单 `dropdown-menu-{checkbox,radio}-item-indicator > span`、`radio-group-indicator`）用 Base UI 的 `[data-starting-style]` / `[data-ending-style]` 写 `transition`，**不要写挂载 keyframe**：指示器首次挂载即已选中时不会进入 starting 态，菜单展开时已有的 ✓ 才不会重播。退场必须写在**指示器元素自身**：Base UI 只等它自己的 `getAnimations()` 结束就卸载，写在子元素上的退场会被直接截断。Select / Combobox 的指示器取消即卸载、选中即关弹层，不做切换动效。
+  - **分段 ToggleGroup**（`variant="segmented"`）的选中底卡是组自己的 `::before`（月光另有 `::after` 拖尾），由 `components/motion/use-segment-thumb.ts` 用 `offset*` 测量后写 `--thumb-*`；选中项本身不再铺底色，新增分段控件无需接线。`data-thumb="instant"` 时不过渡（首帧、尺寸变化、换语言重排都原地落位），只有换选中项才滑动。
+  - **按钮内的两种状态**（复制 → 已复制、图标 → 加载圈）用 `components/motion/state-swap.tsx` 的 `StateSwap` 叠在同一格里交叉过渡，按钮宽度取两者较宽者、切换不跳；文案用 `<LocaleStableText text={t(…)} />` 包一层，跨语言也不跳。不要再写 `{busy ? <Spinner/> : <Icon/>}` 这类硬切。
+  - `@keyframes` 名在所有样式文件中必须唯一：同名不会报错，后加载的整段覆盖前者（曾经 `atelier-stamp` 重名，导致复选框一直播的是登录页的封面压印）。
 - **能用 CSS 就不用 JS**：只有需要逐帧物理的效果（磁吸弹簧、倾斜跟随）才进 `InteractionLayer`；弹簧参数在 `lib/motion/tokens.ts`，CSS 侧的 `--ease-orbit` 由 `lib/motion/spring.ts` 采样生成，`spring.test.ts` 保证两者一致——改弹簧参数要同步重新生成 CSS。
 - **入场动画用 `backwards` 填充**：动画结束后不残留 `transform/filter/clip-path`，否则会覆盖元素自身的 transform（如卡片倾斜）或形成 containing block。moonshot 下不要在包含玻璃卡片的祖先元素上做 `filter` 动画（祖先会成为 backdrop root，入场期间玻璃失效）；页面包裹层只用 `--animate-page`（透明度 + 缩放），blur 放在内部块上。
 - **主题切换走 `setTheme(next, origin)`**：`lib/motion/theme-transition.ts` 用 View Transitions 做日蚀 / 墨染转场（边缘层 `.vt-edge` 只存在于新状态、实时渲染）；`still` 档或浏览器不支持时回退到颜色渐变。语言切换走自己的交叉淡化（见下文「切换过渡」），不得复用这条路径。
@@ -143,7 +148,7 @@ Maple Mono CN 每个字重 228 个 `unicode-range` 分片、`font-display: swap`
 
 ### 切换过渡
 
-`setLocale` 经 `lib/motion/locale-transition.ts` 包进一次 View Transition：整页根快照交叉淡化 240ms（`styles/motion-signature.css` 的 `html[data-locale-vt]` 段，保留 UA 的 plus-lighter 混合，中途不变暗）。布局是 Locale-Stable 的，新旧快照对得齐，看到的只是字形原地替换。`still` 档或浏览器不支持时直接切换。标记用 `data-locale-vt`，与主题转场的 `data-vt` 分开，两边清理互不误删；样式带 `:not([data-vt])`，主题转场叠上来时让位。
+`setLocale` 经 `lib/motion/locale-transition.ts` 包进一次 View Transition：带 `origin`（账户菜单的胶囊格、语言下拉里点中的菜单项，均用 `lib/motion/theme-transition.ts` 的 `centerOf` 取中心）时新语言从点击处软边晕开；没有 `origin` 时整页根快照交叉淡化 240ms（`styles/motion-signature.css` 的 `html[data-locale-vt]` 段，保留 UA 的 plus-lighter 混合，中途不变暗）。布局是 Locale-Stable 的，新旧快照对得齐，看到的只是字形原地替换。`still` 档或浏览器不支持时直接切换。标记用 `data-locale-vt`，与主题转场的 `data-vt` 分开，两边清理互不误删；样式带 `:not([data-vt])`，主题转场叠上来时让位。
 
 - 页面无需任何接线，**不要再给页面根包淡入组件**，也不要在 `width`/`height` 上加 CSS transition。
 - **滚动条槽要预留**：页面随译文变长/变短时，滚动条出现或消失会让整列宽度跳 ~15px。控制台主体滚动区与分享页阅读列已加 `[scrollbar-gutter:stable]`，门户 / 登录 / 回调这类文档滚动页由 `globals.css` 给 `html` 统一预留（控制台页面用 `:has(sidebar-wrapper)` 排除）。新增独立滚动容器照此处理。

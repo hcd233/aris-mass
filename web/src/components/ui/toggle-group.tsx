@@ -7,6 +7,7 @@ import { type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 import { toggleVariants } from "@/components/ui/toggle";
+import { useSegmentThumb } from "@/components/motion/use-segment-thumb";
 
 const ToggleGroupContext = React.createContext<
   VariantProps<typeof toggleVariants> & {
@@ -33,6 +34,9 @@ function ToggleGroup({
     spacing?: number;
     orientation?: "horizontal" | "vertical";
   }) {
+  // 分段控件的选中底卡由组的 ::before 承担并滑动（Motion Grammar），选中项本身不再铺底色。
+  const thumbRef = useSegmentThumb<HTMLDivElement>(variant === "segmented");
+
   return (
     <ToggleGroupPrimitive
       data-slot="toggle-group"
@@ -42,10 +46,11 @@ function ToggleGroup({
       data-orientation={orientation}
       style={{ "--gap": spacing } as React.CSSProperties}
       className={cn(
-        "group/toggle-group flex w-fit flex-row items-center gap-[--spacing(var(--gap))] rounded-lg data-[variant=segmented]:bg-muted data-[variant=segmented]:p-0.5 data-[size=sm]:rounded-[min(var(--radius-md),10px)] data-vertical:flex-col data-vertical:items-stretch",
+        "group/toggle-group flex w-fit flex-row items-center gap-[--spacing(var(--gap))] rounded-lg data-[variant=segmented]:relative data-[variant=segmented]:isolate data-[variant=segmented]:bg-muted data-[variant=segmented]:p-0.5 data-[size=sm]:rounded-[min(var(--radius-md),10px)] data-vertical:flex-col data-vertical:items-stretch",
         className,
       )}
       {...props}
+      ref={thumbRef}
     >
       <ToggleGroupContext.Provider value={{ variant, size, spacing, orientation }}>
         {children}

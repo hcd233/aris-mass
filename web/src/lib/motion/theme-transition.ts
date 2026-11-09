@@ -13,6 +13,12 @@ export interface Point {
   y: number;
 }
 
+/** Viewport center of a clicked control: where a theme / locale reveal starts. */
+export function centerOf(el: Element): Point {
+  const r = el.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+}
+
 /** Distance from the origin to the farthest viewport corner. */
 export function revealRadius(x: number, y: number, w: number, h: number): number {
   return Math.hypot(Math.max(x, w - x), Math.max(y, h - y));

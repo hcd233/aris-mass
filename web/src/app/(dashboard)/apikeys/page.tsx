@@ -53,6 +53,7 @@ import { useT } from "@/lib/i18n";
 import { formatDate } from "@/lib/utils";
 import { useCopyFeedback } from "@/hooks/use-copy-feedback";
 import { TruncatedText } from "@/components/truncated-text";
+import { StateSwap } from "@/components/motion/state-swap";
 
 export default function APIKeysPage() {
   const t = useT();
@@ -171,7 +172,7 @@ export default function APIKeysPage() {
                         size="icon-sm"
                         onClick={() => handleCopy(createdKey.key)}
                       >
-                        {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+                        <StateSwap active={copied} off={<Copy />} on={<Check />} />
                       </Button>
                     </div>
                     <DialogFooter showCloseButton>
