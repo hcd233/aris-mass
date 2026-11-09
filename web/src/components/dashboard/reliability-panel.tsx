@@ -1,8 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { format } from "date-fns";
-import { api } from "@/lib/api-client";
 import { useT } from "@/lib/i18n";
 import { cn, formatInteger } from "@/lib/utils";
 import {
@@ -18,9 +17,7 @@ import type { DashboardFailure, DashboardUptimeBucket } from "@/lib/types";
 import { TooltipContent, TooltipRoot, TooltipTrigger } from "@/components/ui/tooltip";
 import { Panel } from "@/components/dashboard/panel";
 import { useOverview } from "@/components/dashboard/overview-context";
-import { useDashboardQuery } from "@/components/dashboard/use-dashboard-query";
 import type { DashboardRange } from "@/components/dashboard/use-dashboard-range";
-import { TruncatedText } from "@/components/truncated-text";
 
 const DAY_MS = 86_400_000;
 
@@ -148,26 +145,16 @@ function FailureBreakdown({ failures }: { failures: DashboardFailure[] }) {
   );
 }
 
-/** 可用性：固定 32 段的状态条（按失败率分档上色），悬停看每段明细；底部为失败原因合计与 Top 错误 */
+/** 可用性：固定 32 段的状态条（按失败率分档上色），悬停看每段明细；底部为失败原因合计 */
 export function ReliabilityPanel({ range }: { range: DashboardRange }) {
   const t = useT();
   const { data, loading, error, retry } = useOverview();
-  const { startTime, endTime, refreshToken, spanDays } = range;
-
-  const errFetcher = useCallback(async () => {
-    const rsp = await api.fetchDashboardErrors({ startTime, endTime, limit: 1 });
-    return rsp.data ?? [];
-  }, [startTime, endTime]);
-  const { data: topErrors } = useDashboardQuery(
-    `${startTime}|${endTime}|${refreshToken}`,
-    errFetcher,
-  );
+  const { spanDays } = range;
 
   // 桶由后端按 overview 的 uptimeBuckets 参数定长切好（空桶为零值），前端不再合并
   const segments = data?.uptime ?? [];
 
   const summary = data?.current.summary;
-  const top = topErrors?.[0];
   const axisFormat = spanDays <= 1 ? "HH:mm" : "MM-dd";
 
   return (
@@ -179,33 +166,15 @@ export function ReliabilityPanel({ range }: { range: DashboardRange }) {
       onRetry={retry}
       action={
         summary && (
-          /* 只给「分母」：失败数已经由卡内的大字成功率与页脚的「无失败请求 / Top 错误」
-           * 表达两次，再写一个 “0 / 47” 就是同一件事的第三种说法。 */
+          /* 只给「分母」：失败数已经由卡内的大字成功率与失败分布表达，
+           * 再写一个 “0 / 47” 就是同一件事的另一种说法。 */
           <span className="font-mono text-[11px] text-muted-foreground tabular-nums">
             {formatInteger(summary.requests)} {t("dashboard.col.requests")}
           </span>
         )
       }
       footer={
-        top ? (
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span className="shrink-0">{t("dashboard.panel.top_error")}</span>
-            <TruncatedText
-              render={<code />}
-              className="min-w-0 rounded bg-muted px-1 font-mono text-[11px] text-foreground"
-              tooltip={
-                <>
-                  {top.statusCode} {top.message}
-                </>
-              }
-            >
-              {top.statusCode} {top.message || "\u2014"}
-            </TruncatedText>
-            <span className="shrink-0 font-mono tabular-nums">×{formatInteger(top.count)}</span>
-          </div>
-        ) : (
-          <span>{t("dashboard.panel.no_errors")}</span>
-        )
+        summary?.failures.length === 0 ? <span>{t("dashboard.panel.no_errors")}</span> : undefined
       }
     >
       <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden text-[11px]">

@@ -971,7 +971,6 @@
   "dashboard.panel.top": "Top ranking",
   "dashboard.panel.activity": "Activity · weekday × hour",
   "dashboard.panel.clients": "Clients",
-  "dashboard.panel.top_error": "Top error",
   "dashboard.panel.no_errors": "No failed requests in range",
   "dashboard.panel.avg_stream": "Avg stream",
   "dashboard.metric.cost": "Cost",

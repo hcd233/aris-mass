@@ -971,7 +971,6 @@
   "dashboard.panel.top": "トップランキング",
   "dashboard.panel.activity": "アクティブ時間帯 · 曜日 × 時",
   "dashboard.panel.clients": "クライアント分布",
-  "dashboard.panel.top_error": "主なエラー",
   "dashboard.panel.no_errors": "期間内に失敗なし",
   "dashboard.panel.avg_stream": "平均ストリーム",
   "dashboard.metric.cost": "コスト",

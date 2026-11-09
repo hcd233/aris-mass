@@ -971,7 +971,6 @@
   "dashboard.panel.top": "Top 排行",
   "dashboard.panel.activity": "活跃时段 · 星期 × 小时",
   "dashboard.panel.clients": "客户端分布",
-  "dashboard.panel.top_error": "Top 错误",
   "dashboard.panel.no_errors": "区间内无失败请求",
   "dashboard.panel.avg_stream": "平均流式时长",
   "dashboard.metric.cost": "费用",
