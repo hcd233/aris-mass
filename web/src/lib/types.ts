@@ -864,14 +864,22 @@ export interface RuntimeMetricsRsp extends CommonRsp {
 
 // ─── Dataset ───────────────────────────────────────────────────────────────────
 
+/** 汇总字段应用全部筛选；scoreHistogram 不应用 minScore、modelFacets 不应用 modelIds（分面语义） */
 export interface DatasetPreviewRsp extends CommonRsp {
   totalSessions?: number;
-  scoreDistribution?: Record<number, number>;
-  modelDistribution?: Record<string, number>;
+  totalMessages?: number;
+  toolSessions?: number;
+  /** 评分 → 会话数，键 "0" 表示未评分 */
+  scoreHistogram?: Record<string, number>;
+  /** 模型 → 会话数，每个会话对其用到的每个模型各计一次 */
+  modelFacets?: Record<string, number>;
 }
 
 export interface DatasetFormatPreviewRsp extends CommonRsp {
   sessionId?: number;
+  createdAt?: string;
+  score?: number;
+  modelIds?: string[];
   offset?: number;
   totalCount?: number;
   sharegptJson?: string;

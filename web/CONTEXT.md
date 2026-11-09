@@ -86,17 +86,25 @@ _Avoid_: soft hyphen, wbr
 
 ## Dataset Page（训练数据页）
 
-**Stepper（向导步骤指示器）**:
-Dataset 页面顶部的三段式进度指示器，标记 `Configure → Review → Export` 三个阶段。纯视觉叙事设备，不做导航控制——所有步骤同时可见，用户自由滚动。改筛选条件时统计原地刷新。
-_Avoid_: wizard controller, step locker
+**Dataset Workbench（数据集工作台）**:
+Dataset 页面的心智模型：筛选条件就是一个查询，结果实时可见，主操作始终在手边。没有步骤、没有向导——改任何条件，结果栏与样本检查器原地刷新。设计见 `docs/superpowers/specs/2026-11-09-dataset-workbench-design.md`。
+_Avoid_: wizard, stepper, filter-explore-export flow
 
-**Filter-Explore-Export Flow（筛选-探索-导出流）**:
-Dataset 页面的用户心智模型。用户先配置筛选条件（Step 1），再查看数据分布和样本预览确认质量（Step 2），最后导出 ShareGPT JSONL（Step 3）。"探索"先于"导出"——统计信息应比导出按钮先进入视野。
-_Avoid_: filter-export shortcut
+**Recipe（配方）**:
+决定导出哪些会话的条件组合：时间范围（页头）、质量门槛、模型。配方变化即视为一个新查询，样本位置归零、已下载提示收起。
+_Avoid_: filter form, export config
 
-**Export Confirmation Panel（导出确认面板）**:
-Step 3 中的导出确认区域，展示筛选摘要（分数阈值、模型、时间范围）、匹配总数、输出格式说明，配合主导出按钮。将导出从"底部浮动按钮"升级为"确认动作"，强化最终步骤的仪式感。
-_Avoid_: export bar, download footer
+**Result Bar（结果栏）**:
+吸顶的当前配方结果：匹配会话数、消息数、平均每段消息数、带工具占比，以及导出按钮。是页面上唯一展示「当前结果」的地方；导出在这里原地进行（进度线、取消、完成后的文件名）。
+_Avoid_: export confirmation panel, summary card
+
+**Quality Histogram（质量直方图）**:
+质量门槛的选择器本身：未评分与 1–5 分六根柱，点第 k 根即保留 k 分及以上，点未评分即不限。计数遵循分面计数（不应用评分阈值），阈值以下的柱变淡。
+_Avoid_: score slider, score distribution
+
+**Sample Inspector（样本检查器）**:
+逐段翻看匹配会话的阅读面，首屏即打开。默认按 ShareGPT 原字段（`from` 原值作角色名）渲染，可切到原始 JSON 行；支持上一段 / 下一段 / 随机。
+_Avoid_: format preview, preview toggle
 
 ## Models Page（模型管理页）
 

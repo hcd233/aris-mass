@@ -22,14 +22,16 @@ type ExportParams struct {
 	EndTime    time.Time
 }
 
-// PreviewResult 统计预览结果
+// PreviewResult 统计预览结果，语义见 session.ExportPreview
 //
 //	@author centonhuang
-//	@update 2026-07-03 10:00:00
+//	@update 2026-11-09 10:00:00
 type PreviewResult struct {
-	TotalSessions     int            `json:"totalSessions"`
-	ScoreDistribution map[int]int    `json:"scoreDistribution"`
-	ModelDistribution map[string]int `json:"modelDistribution"`
+	TotalSessions  int
+	TotalMessages  int
+	ToolSessions   int
+	ScoreHistogram map[int]int
+	ModelFacets    map[string]int
 }
 
 // PreviewDatasetHandler 统计预览处理器
@@ -65,9 +67,12 @@ type ExportDatasetHandler interface {
 // FormatPreviewResult 单条会话格式预览结果
 //
 //	@author centonhuang
-//	@update 2026-07-06 10:00:00
+//	@update 2026-11-09 10:00:00
 type FormatPreviewResult struct {
 	SessionID    uint
+	CreatedAt    time.Time
+	Score        *int
+	ModelIDs     []string
 	Offset       int
 	TotalCount   int
 	ShareGPTJSON string

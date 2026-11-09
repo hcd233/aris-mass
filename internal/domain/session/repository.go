@@ -125,9 +125,10 @@ type ExportFilter struct {
 // ExportSessionRow 导出会话行（仅含 ID + 关联 IDs + 元数据，不含消息内容）
 //
 //	@author centonhuang
-//	@update 2026-07-03 10:00:00
+//	@update 2026-11-09 10:00:00
 type ExportSessionRow struct {
 	ID         uint
+	CreatedAt  time.Time
 	Score      *int
 	MessageIDs []uint
 	ToolIDs    []uint
@@ -136,12 +137,19 @@ type ExportSessionRow struct {
 
 // ExportPreview 统计预览结果
 //
+//	汇总字段应用全部筛选条件；ScoreHistogram 不应用 MinScore、ModelFacets 不应用 ModelIDs（分面语义），
+//	使调整某一条件时能看到它在其他条件下的完整分布。
+//
 //	@author centonhuang
-//	@update 2026-07-03 10:00:00
+//	@update 2026-11-09 10:00:00
 type ExportPreview struct {
-	TotalSessions     int
-	ScoreDistribution map[int]int
-	ModelDistribution map[string]int
+	TotalSessions int
+	TotalMessages int
+	ToolSessions  int
+	// ScoreHistogram 评分 → 会话数，键 0 表示未评分
+	ScoreHistogram map[int]int
+	// ModelFacets 模型 → 会话数，每个会话对其用到的每个模型各计一次
+	ModelFacets map[string]int
 }
 
 // SessionReadRepository Session 只读查询仓储（CQRS 读模型）
@@ -175,6 +183,8 @@ type SessionReadRepository interface {
 	ListMessageCountStats(ctx context.Context, ownerIDs []uint, startTime, endTime time.Time, sessionIDs []uint) (maxCount int, bucketCounts map[int]int64, err error)
 	// ListSessionsForExport 按筛选条件查询导出用会话行（不含消息内容，仅 IDs）
 	ListSessionsForExport(ctx context.Context, f ExportFilter) ([]*ExportSessionRow, error)
-	// PreviewExport 按筛选条件统计预览（会话数 + 评分分布 + 模型分布）
+	// FindSessionForExportAt 按 id 升序取筛选结果的第 offset 条（越界钳到末条）及匹配总数；无匹配返回 (nil, 0, nil)
+	FindSessionForExportAt(ctx context.Context, f ExportFilter, offset int) (*ExportSessionRow, int, error)
+	// PreviewExport 按筛选条件统计预览（汇总 + 评分直方图 + 模型分面）
 	PreviewExport(ctx context.Context, f ExportFilter) (*ExportPreview, error)
 }

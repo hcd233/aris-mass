@@ -55,9 +55,11 @@ func (h *previewDatasetHandler) Handle(ctx context.Context, p datasetport.Export
 	}
 
 	return &datasetport.PreviewResult{
-		TotalSessions:     preview.TotalSessions,
-		ScoreDistribution: preview.ScoreDistribution,
-		ModelDistribution: preview.ModelDistribution,
+		TotalSessions:  preview.TotalSessions,
+		TotalMessages:  preview.TotalMessages,
+		ToolSessions:   preview.ToolSessions,
+		ScoreHistogram: preview.ScoreHistogram,
+		ModelFacets:    preview.ModelFacets,
 	}, nil
 }
 
@@ -236,26 +238,14 @@ func (h *previewFormatDatasetHandler) Handle(ctx context.Context, p datasetport.
 		return nil, err
 	}
 
-	if offset < 0 {
-		offset = 0
-	}
-
-	rows, err := h.readRepo.ListSessionsForExport(ctx, *f)
+	row, total, err := h.readRepo.FindSessionForExportAt(ctx, *f, offset)
 	if err != nil {
-		log.Error("[DatasetFormatPreview] Failed to list sessions", zap.Error(err))
+		log.Error("[DatasetFormatPreview] Failed to find session", zap.Error(err))
 		return nil, err
 	}
-
-	total := len(rows)
-	if total == 0 {
+	if row == nil {
 		return nil, ierr.New(ierr.ErrDataNotExists, constant.DatasetExportNoMatchError)
 	}
-
-	if offset >= total {
-		offset = total - 1
-	}
-
-	row := rows[offset]
 
 	msgs, err := h.readRepo.FindMessagesByIDs(ctx, row.MessageIDs)
 	if err != nil {
@@ -287,7 +277,10 @@ func (h *previewFormatDatasetHandler) Handle(ctx context.Context, p datasetport.
 
 	return &datasetport.FormatPreviewResult{
 		SessionID:    row.ID,
-		Offset:       offset,
+		CreatedAt:    row.CreatedAt,
+		Score:        row.Score,
+		ModelIDs:     row.ModelIDs,
+		Offset:       min(max(offset, 0), total-1),
 		TotalCount:   total,
 		ShareGPTJSON: string(line),
 	}, nil

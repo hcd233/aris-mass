@@ -274,7 +274,7 @@ _Avoid_: compression record, tool output compression
 _Avoid_: data pipeline, etl, data processing
 
 **DatasetExport（数据集导出）**:
-按筛选条件（评分阈值、模型、时间范围）从会话数据生成 ShareGPT 格式 JSONL 文件的流式导出能力。一条会话 = 一行 JSONL，全量保留多轮对话、思维链（`<think>` 标签）、工具调用和工具响应。不持久化导出文件，浏览器流式下载。
+按筛选条件（评分阈值、模型、时间范围）从会话数据生成 ShareGPT 格式 JSONL 文件的流式导出能力。一条会话 = 一行 JSONL，全量保留多轮对话、思维链（`<think>` 标签）、工具调用和工具响应。不持久化导出文件，浏览器流式下载。模型条件是「任一所选」：会话用过任一所选模型即命中。
 _Avoid_: data export, dataset generation, training data extraction
 
 **ShareGPT Conversation（ShareGPT 对话记录）**:
@@ -282,8 +282,12 @@ _Avoid_: data export, dataset generation, training data extraction
 _Avoid_: training sample, sft record, conversation entry
 
 **DatasetPreview（数据集预览）**:
-导出前的统计预览能力：返回匹配会话数、评分分布、模型分布、估算 token 总量。用户据此判断筛选条件是否合理后再触发流式导出。
+导出前的统计预览能力：匹配会话数（按会话计，与导出条数一致）、消息总数、带工具定义的会话数，加上评分直方图与模型分面。用户据此判断筛选条件是否合理后再触发流式导出。
 _Avoid_: export preview, dataset stats, data overview
+
+**Facet Count（分面计数）**:
+预览里评分直方图与模型列表的计数规则：统计某一维度时不应用该维度自己的条件，其余条件照常应用。所以调评分阈值时能看到被砍掉的分段，模型列表里未勾选的模型也显示「勾上会多出多少」。未评分会话在直方图里记为 0 分桶。
+_Avoid_: distribution, breakdown
 
 **SFT Style Cloning（SFT 风格克隆）**:
 使用数据集导出的 ShareGPT 数据对私有小模型做监督微调（SFT），目标是让小模型学习用户偏好的回答风格和推理方式。数据格式为通用 ShareGPT，不锁定基座模型，chat template 转换在训练侧完成。

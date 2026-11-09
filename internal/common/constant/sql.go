@@ -447,18 +447,29 @@ var (
 	SessionMessageCountBucketIdx     = "bucket_idx"
 
 	// ── Session export query constants ──
-	// 导出行：id, score, message_ids, tool_ids, model_ids
-	SessionExportSelect = "id, score, message_ids, tool_ids, model_ids"
+	// 导出行：id, created_at, score, message_ids, tool_ids, model_ids
+	SessionExportSelect = "id, created_at, score, message_ids, tool_ids, model_ids"
 
-	// 预览：score + 展开的 model（jsonb_array_elements_text）
-	SessionExportPreviewSelect = "score, jsonb_array_elements_text(model_ids::jsonb) AS model"
+	// sessionModelIDsArray model_ids 按 jsonb 数组读取；SQL NULL 或非数组一律视为空数组，
+	// 避免 jsonb_array_elements_text 对标量报错
+	sessionModelIDsArray = "CASE WHEN jsonb_typeof(model_ids::jsonb) = 'array' THEN model_ids::jsonb ELSE '[]'::jsonb END"
 
-	// model_ids JSONB 数组包含任意一个目标模型（? 展开为 ANY 数组）
-	// 用 jsonb_path_exists 做数组包含判断：model_ids @> ?::jsonb
-	SessionExportModelFilterSQL = "model_ids::jsonb @> ?::jsonb"
+	// 模型筛选：会话用到任一所选模型（? 展开为 IN 列表）
+	SessionExportModelFilterSQL = "EXISTS (SELECT 1 FROM jsonb_array_elements_text(" + sessionModelIDsArray + ") AS em(model) WHERE em.model IN ?)"
 
-	// model_ids 非空过滤（预览查询用）
-	SessionExportModelIsNotNull = "model_ids IS NOT NULL AND model_ids::jsonb <> '[]'::jsonb"
+	// 预览汇总：按会话计数（与导出条数一致）、消息总数、带工具定义的会话数
+	SessionExportSummarySelect = "COUNT(*) AS total_sessions, " +
+		"COALESCE(SUM(jsonb_array_length(message_ids::jsonb)), 0) AS total_messages, " +
+		"COUNT(*) FILTER (WHERE jsonb_array_length(tool_ids::jsonb) > 0) AS tool_sessions"
+
+	// 预览评分直方图：未评分归入 0 桶
+	SessionExportScoreBucket          = "COALESCE(score, 0)"
+	SessionExportScoreHistogramSelect = SessionExportScoreBucket + " AS score, COUNT(*) AS sessions"
+
+	// 预览模型分面：每个会话对其用到的每个模型各计一次
+	SessionExportModelFacetJoin   = "CROSS JOIN LATERAL jsonb_array_elements_text(" + sessionModelIDsArray + ") AS fm(model)"
+	SessionExportModelFacetSelect = "fm.model AS model, COUNT(*) AS sessions"
+	SessionExportModelFacetGroup  = "fm.model"
 
 	// MigrateMessageBatchSize checksum 迁移与 dedup 每批处理记录数
 	MigrateMessageBatchSize = 1000
