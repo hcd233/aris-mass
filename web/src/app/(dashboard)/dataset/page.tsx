@@ -1,623 +1,281 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Database, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
-import {
-  ChevronDown,
-  Database,
-  Download,
-  Eye,
-  FileJson,
-  Filter,
-  Gauge,
-  RotateCcw,
-  SlidersHorizontal,
-  ArrowRight,
-} from "lucide-react";
 
 import { usePersistentState } from "@/hooks/use-persistent-state";
+import { useRequestSeq } from "@/hooks/use-request-seq";
 import { api } from "@/lib/api-client";
 import { showErrorToast } from "@/lib/api-error-handler";
-import { formatDateTime } from "@/lib/utils";
+import { buildModelFacets, randomOffset } from "@/lib/dataset";
 import { useT } from "@/lib/i18n";
-import type { DatasetFormatPreviewRsp, DatasetPreviewRsp } from "@/lib/types";
 import { computeRange, type TimeRangeKey } from "@/lib/time-range";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Slider } from "@/components/ui/slider";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { MultiSelectPill } from "@/components/ui/multi-select-pill";
-import { Skeleton } from "@/components/ui/skeleton";
-import { TimeRangePicker } from "@/components/ui/time-range-picker";
-import { Separator } from "@/components/ui/separator";
-import { Spinner } from "@/components/ui/spinner";
-import { Progress } from "@/components/ui/progress";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { PermissionGuard } from "@/components/permission-guard";
-import { PageHeader } from "@/components/page-header";
-import { HighlightedCode } from "@/components/chat/highlighted-code";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import type { DatasetFormatPreviewRsp, DatasetPreviewRsp } from "@/lib/types";
 import { formatInteger } from "@/lib/utils";
-import { TruncatedText } from "@/components/truncated-text";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { TimeRangePicker } from "@/components/ui/time-range-picker";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { ListEmptyState } from "@/components/list-empty-state";
+import { PageHeader } from "@/components/page-header";
+import { PermissionGuard } from "@/components/permission-guard";
+import { ModelFacetList } from "@/components/dataset/model-facet-list";
+import { ResultBar, type ExportState } from "@/components/dataset/result-bar";
+import { SampleInspector, type SampleView } from "@/components/dataset/sample-inspector";
+import { ScoreHistogram } from "@/components/dataset/score-histogram";
 
-/** 预览 JSON 美化：可解析则 2 空格缩进，否则原样展示（纯文本渲染，无 HTML 注入面） */
-function prettyJSON(jsonStr: string): string {
-  try {
-    return JSON.stringify(JSON.parse(jsonStr), null, 2);
-  } catch {
-    return jsonStr;
-  }
+const DEFAULT_TIME_RANGE: TimeRangeKey = "30d";
+
+/** 一次加载结果连同它所属的配方，配方变化后旧结果自动失效（无需在 effect 里清空） */
+interface Keyed<T> {
+  key: string;
+  data: T;
 }
 
-function formatTimeRange(startTime: string, endTime: string): string {
-  return `${formatDateTime(startTime)} - ${formatDateTime(endTime)}`;
-}
-
-function replaceVars(text: string, vars: Record<string, string>): string {
-  return Object.entries(vars).reduce(
-    (acc, [key, value]) => acc.replaceAll(`{${key}}`, value),
-    text,
-  );
-}
-
-function StepCard({
-  index,
+function RecipeSection({
   title,
-  description,
+  hint,
   children,
 }: {
-  index: number;
   title: string;
-  description: string;
+  hint?: string;
   children: React.ReactNode;
 }) {
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-start gap-3">
-          <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
-            {index}
-          </div>
-          <div>
-            <CardTitle>{title}</CardTitle>
-            <CardDescription className="mt-1">{description}</CardDescription>
-          </div>
-        </div>
-      </CardHeader>
-      <Separator className="mx-4" />
-      <CardContent>{children}</CardContent>
-    </Card>
-  );
-}
-
-function MetricCard({
-  label,
-  value,
-  hint,
-  loading,
-  textValue = false,
-}: {
-  label: string;
-  value: string;
-  hint?: string;
-  loading: boolean;
-  /** 长字符串（模型名/格式名）用小一号并允许换行，避免 3xl 衬线字撑成标题 */
-  textValue?: boolean;
-}) {
-  return (
-    <div className="min-w-0 rounded-xl border border-border bg-muted/30 p-4">
-      <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-        {label}
+    <section className="space-y-3 px-5 py-5">
+      <div>
+        <h2 className="text-sm font-medium text-foreground">{title}</h2>
+        {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
       </div>
-      {loading ? (
-        <Skeleton className="mt-3 h-8 w-24" />
-      ) : (
-        <div
-          className={`mt-2 font-display font-semibold text-foreground ${
-            textValue ? "text-xl break-words" : "text-3xl"
-          }`}
-        >
-          {value}
-        </div>
-      )}
-      {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}
-    </div>
-  );
-}
-
-function StatPill({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex min-w-0 items-center gap-2 rounded-lg border border-border bg-card px-3.5 py-2.5 text-sm">
-      <span className="shrink-0 text-muted-foreground">{label}</span>
-      <span className="ml-auto min-w-0 break-words text-right font-mono font-medium tabular-nums text-foreground">
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function DistributionList({
-  title,
-  items,
-  emptyText,
-}: {
-  title: string;
-  items: { label: string; value: number }[];
-  emptyText: string;
-}) {
-  const max = Math.max(1, ...items.map((item) => item.value));
-
-  return (
-    <div className="rounded-xl border border-border bg-muted/20 p-5">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-medium text-foreground">{title}</h3>
-        <Badge variant="secondary" className="font-mono tabular-nums">
-          {items.length}
-        </Badge>
-      </div>
-      <div className="space-y-3">
-        {items.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border px-3 py-8 text-center text-sm text-muted-foreground">
-            {emptyText}
-          </div>
-        ) : (
-          items.map((item) => (
-            <div key={item.label} className="space-y-1.5">
-              <div className="flex items-center justify-between gap-3 text-xs">
-                <TooltipProvider>
-                  <TruncatedText className="max-w-[24ch] text-foreground" align="start">
-                    {item.label}
-                  </TruncatedText>
-                </TooltipProvider>
-                <span className="font-mono tabular-nums text-muted-foreground">
-                  {formatInteger(item.value)}
-                </span>
-              </div>
-              <Progress value={Math.max(6, (item.value / max) * 100)} />
-            </div>
-          ))
-        )}
-      </div>
-    </div>
+      {children}
+    </section>
   );
 }
 
 export default function DatasetPage() {
   const t = useT();
   const [minScore, setMinScore] = usePersistentState("dashboard.dataset.minScore", 3);
-  const [selectedModels, setSelectedModels] = usePersistentState<string[]>(
-    "dashboard.dataset.models",
-    [],
-  );
+  const [models, setModels] = usePersistentState<string[]>("dashboard.dataset.models", []);
   const [timeRange, setTimeRange] = usePersistentState<TimeRangeKey>(
     "dashboard.dataset.timeRange",
-    "30d",
+    DEFAULT_TIME_RANGE,
   );
   const [customStart, setCustomStart] = usePersistentState("dashboard.dataset.customStart", "");
   const [customEnd, setCustomEnd] = usePersistentState("dashboard.dataset.customEnd", "");
-  const [modelOptions, setModelOptions] = useState<string[]>([]);
-  const [preview, setPreview] = useState<DatasetPreviewRsp | null>(null);
-  const [formatPreview, setFormatPreview] = useState<DatasetFormatPreviewRsp | null>(null);
-  const [loadingPreview, setLoadingPreview] = useState(true);
-  const [loadingFormat, setLoadingFormat] = useState(false);
-  const [showFormatPreview, setShowFormatPreview] = useState(false);
-  const [exporting, setExporting] = useState(false);
-  const [exportProgress, setExportProgress] = useState(0);
+  const [view, setView] = usePersistentState<SampleView>("dashboard.dataset.view", "conversation");
 
-  const buildParams = useCallback(() => {
+  const recipe = JSON.stringify([minScore, models, timeRange, customStart, customEnd]);
+  const params = useMemo(() => {
     const { startTime, endTime } = computeRange(timeRange, customStart, customEnd);
-    return {
-      minScore,
-      modelIds: selectedModels,
-      startTime,
-      endTime,
-    };
-  }, [customEnd, customStart, minScore, selectedModels, timeRange]);
+    return { minScore, modelIds: models, startTime, endTime };
+  }, [minScore, models, timeRange, customStart, customEnd]);
 
-  const loadPreview = useCallback(async () => {
-    setLoadingPreview(true);
-    try {
-      const params = buildParams();
-      const rsp = await api.previewDataset(params);
-      if (rsp.error) {
-        showErrorToast(rsp.error, { title: t("dataset.preview_error") });
-        return;
-      }
-      setPreview(rsp);
-    } catch (err) {
-      showErrorToast(err, { title: t("dataset.preview_error") });
-    } finally {
-      setLoadingPreview(false);
-    }
-  }, [buildParams, t]);
+  const [preview, setPreview] = useState<Keyed<DatasetPreviewRsp> | null>(null);
+  const [cursor, setCursor] = useState<Keyed<number>>({ key: recipe, data: 0 });
+  const [sample, setSample] = useState<Keyed<DatasetFormatPreviewRsp> | null>(null);
+  const [sampleLoading, setSampleLoading] = useState(false);
+  const [exportState, setExportState] = useState<ExportState>({ status: "idle" });
+  const abortRef = useRef<AbortController | null>(null);
+  const previewGuard = useRequestSeq();
+  const sampleGuard = useRequestSeq();
 
-  const loadFormatPreview = useCallback(async () => {
-    if (!showFormatPreview) return;
-    setLoadingFormat(true);
-    try {
-      const rsp = await api.previewDatasetFormat({ ...buildParams(), offset: 0 });
-      if (rsp.error) {
-        showErrorToast(rsp.error, { title: t("dataset.preview_error") });
-        return;
-      }
-      setFormatPreview(rsp);
-    } catch (err) {
-      showErrorToast(err, { title: t("dataset.preview_error") });
-    } finally {
-      setLoadingFormat(false);
-    }
-  }, [buildParams, showFormatPreview, t]);
+  const offset = cursor.key === recipe ? cursor.data : 0;
+  const currentPreview = preview?.key === recipe ? preview.data : null;
+  const total = currentPreview?.totalSessions ?? 0;
+  const sampleKey = `${recipe}#${offset}`;
+  const hasMatches = total > 0;
 
-  const loadModelOptions = useCallback(async () => {
-    try {
-      const { startTime, endTime } = computeRange(timeRange, customStart, customEnd);
-      const rsp = await api.listSessionOptions({ field: "model", startTime, endTime });
-      if (!rsp.error) setModelOptions(rsp.items ?? []);
-    } catch {
-      setModelOptions([]);
-    }
-  }, [customEnd, customStart, timeRange]);
-
-  /* eslint-disable react-hooks/set-state-in-effect -- Dataset filters refetch server previews. */
+  /* eslint-disable react-hooks/set-state-in-effect -- 配方变化后重新拉取服务端统计与样本 */
   useEffect(() => {
-    loadPreview();
-  }, [loadPreview]);
+    const seq = previewGuard.begin();
+    const key = recipe;
+    api
+      .previewDataset(params)
+      .then((rsp) => {
+        if (!previewGuard.isCurrent(seq)) return;
+        if (rsp.error) {
+          showErrorToast(rsp.error, { title: t("dataset.preview_error") });
+          return;
+        }
+        setPreview({ key, data: rsp });
+      })
+      .catch((err) => {
+        if (previewGuard.isCurrent(seq)) showErrorToast(err, { title: t("dataset.preview_error") });
+      });
+  }, [params, recipe, previewGuard, t]);
 
   useEffect(() => {
-    loadFormatPreview();
-  }, [loadFormatPreview]);
-
-  useEffect(() => {
-    loadModelOptions();
-  }, [loadModelOptions]);
+    if (!hasMatches) return;
+    const seq = sampleGuard.begin();
+    setSampleLoading(true);
+    api
+      .previewDatasetFormat({ ...params, offset })
+      .then((rsp) => {
+        if (!sampleGuard.isCurrent(seq)) return;
+        if (rsp.error) {
+          showErrorToast(rsp.error, { title: t("dataset.sample_error") });
+          return;
+        }
+        setSample({ key: sampleKey, data: rsp });
+      })
+      .catch((err) => {
+        if (sampleGuard.isCurrent(seq)) showErrorToast(err, { title: t("dataset.sample_error") });
+      })
+      .finally(() => {
+        if (sampleGuard.isCurrent(seq)) setSampleLoading(false);
+      });
+  }, [params, offset, sampleKey, hasMatches, sampleGuard, t]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  const handleClearFilters = () => {
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  const activeFilters = minScore > 0 || models.length > 0 || timeRange !== DEFAULT_TIME_RANGE;
+
+  const resetRecipe = () => {
     setMinScore(0);
-    setSelectedModels([]);
-    setTimeRange("30d");
+    setModels([]);
+    setTimeRange(DEFAULT_TIME_RANGE);
     setCustomStart("");
     setCustomEnd("");
   };
 
+  const goTo = (next: number) =>
+    setCursor({ key: recipe, data: Math.min(Math.max(next, 0), total - 1) });
+
   const handleExport = async () => {
-    if (exporting || (preview?.totalSessions ?? 0) === 0) return;
-
-    setExporting(true);
-    setExportProgress(0);
-
+    if (abortRef.current) return;
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setExportState({ status: "running", done: 0, total });
     try {
-      const { chunks, lines, total } = await api.exportDatasetStream(buildParams(), (done, all) => {
-        if (all > 0) setExportProgress(Math.min(100, Math.floor((done * 100) / all)));
-      });
-      if (lines < total) {
+      const result = await api.exportDatasetStream(
+        params,
+        (done, all) => setExportState({ status: "running", done, total: all }),
+        controller.signal,
+      );
+      if (result.lines < result.total) {
         throw new Error(
-          replaceVars(t("dataset.export_incomplete"), {
-            received: formatInteger(lines),
-            total: formatInteger(total),
-          }),
+          t("dataset.export_incomplete")
+            .replace("{received}", formatInteger(result.lines))
+            .replace("{total}", formatInteger(result.total)),
         );
       }
-      setExportProgress(100);
-
-      const blob = new Blob(chunks as BlobPart[], { type: "application/x-ndjson" });
+      const blob = new Blob(result.chunks as BlobPart[], { type: "application/x-ndjson" });
+      const file = `aris-dataset-${new Date().toISOString().slice(0, 10)}.jsonl`;
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `aris-dataset-${new Date().toISOString().slice(0, 10)}.jsonl`;
+      a.download = file;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-
-      toast.success(`${t("dataset.export_success")} · ${formatInteger(total)}`);
+      setExportState({ status: "done", recipe, file, size: blob.size });
+      toast.success(t("dataset.export_success"));
     } catch (err) {
-      showErrorToast(err, { title: t("dataset.export_error") });
+      setExportState({ status: "idle" });
+      if (controller.signal.aborted) {
+        toast(t("dataset.export_cancelled"));
+      } else {
+        showErrorToast(err, { title: t("dataset.export_error") });
+      }
     } finally {
-      setExporting(false);
+      abortRef.current = null;
     }
   };
 
-  const params = buildParams();
-  const totalSessions = preview?.totalSessions ?? 0;
-  const activeFilters =
-    (minScore > 0 ? 1 : 0) + selectedModels.length + (timeRange !== "30d" ? 1 : 0);
-  const scoreItems = Object.entries(preview?.scoreDistribution ?? {})
-    .map(([score, value]) => ({
-      label: replaceVars(t("dataset.score_label"), { score }),
-      value,
-    }))
-    .sort((a, b) => Number(b.label.replace(/\D/g, "")) - Number(a.label.replace(/\D/g, "")));
-  const modelItems = Object.entries(preview?.modelDistribution ?? {})
-    .map(([label, value]) => ({ label, value }))
-    .sort((a, b) => b.value - a.value);
-  const topModel = modelItems[0]?.label ?? "-";
+  const facets = buildModelFacets(currentPreview?.modelFacets ?? preview?.data.modelFacets, models);
+  const histogram = currentPreview?.scoreHistogram ?? preview?.data.scoreHistogram;
+  const previewLoaded = currentPreview !== null;
+  const shownSample = hasMatches && sample ? sample.data : null;
 
   return (
     <PermissionGuard>
-      <div className="space-y-8">
-        {/* Page Header — 与其他 dashboard 页面共用同一套标题区 */}
-        <PageHeader title={t("dataset.title")} description={t("dataset.subtitle")} />
+      <TooltipProvider>
+        <div className="space-y-6">
+          <PageHeader
+            title={t("dataset.title")}
+            description={t("dataset.subtitle")}
+            actions={
+              <TimeRangePicker
+                value={timeRange}
+                customStart={customStart}
+                customEnd={customEnd}
+                onChange={(key, start, end) => {
+                  setTimeRange(key);
+                  setCustomStart(start);
+                  setCustomEnd(end);
+                }}
+              />
+            }
+          />
 
-        {/* Step flow indicator */}
-        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-          <span className="flex items-center gap-1.5 text-primary">
-            <span className="flex size-5 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground">
-              1
-            </span>
-            {t("dataset.step_configure")}
-          </span>
-          <ArrowRight className="size-3" />
-          <span className="flex items-center gap-1.5">
-            <span className="flex size-5 items-center justify-center rounded-full bg-muted text-[11px]">
-              2
-            </span>
-            {t("dataset.step_review")}
-          </span>
-          <ArrowRight className="size-3" />
-          <span className="flex items-center gap-1.5">
-            <span className="flex size-5 items-center justify-center rounded-full bg-muted text-[11px]">
-              3
-            </span>
-            {t("dataset.step_export")}
-          </span>
+          <ResultBar
+            preview={currentPreview ?? preview?.data ?? null}
+            recipe={recipe}
+            exportState={exportState}
+            onExport={handleExport}
+            onCancel={() => abortRef.current?.abort()}
+          />
+
+          <div className="grid items-start gap-6 lg:grid-cols-[20rem_minmax(0,1fr)]">
+            <Card className="gap-0 divide-y divide-border py-0">
+              <RecipeSection title={t("dataset.section_quality")}>
+                <ScoreHistogram histogram={histogram} minScore={minScore} onChange={setMinScore} />
+              </RecipeSection>
+              <RecipeSection title={t("dataset.section_models")} hint={t("dataset.models_any")}>
+                <ModelFacetList facets={facets} selected={models} onChange={setModels} />
+              </RecipeSection>
+              {activeFilters && (
+                <div className="px-3 py-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={resetRecipe}
+                    className="text-muted-foreground"
+                  >
+                    <RotateCcw data-icon="inline-start" />
+                    {t("dataset.reset")}
+                  </Button>
+                </div>
+              )}
+            </Card>
+
+            <Card className="min-h-96 gap-0 py-0">
+              {previewLoaded && !hasMatches ? (
+                <div className="flex flex-1 items-center justify-center py-16">
+                  <ListEmptyState
+                    icon={Database}
+                    message={t("dataset.no_data")}
+                    hint={t("dataset.empty_hint")}
+                    action={
+                      activeFilters && (
+                        <Button variant="outline" onClick={resetRecipe}>
+                          <RotateCcw data-icon="inline-start" />
+                          {t("dataset.clear_filters")}
+                        </Button>
+                      )
+                    }
+                  />
+                </div>
+              ) : (
+                <SampleInspector
+                  sample={shownSample}
+                  loading={sampleLoading || sample?.key !== sampleKey}
+                  offset={offset}
+                  total={total}
+                  view={view}
+                  onViewChange={setView}
+                  onPrev={() => goTo(offset - 1)}
+                  onNext={() => goTo(offset + 1)}
+                  onRandom={() => goTo(randomOffset(total, offset))}
+                />
+              )}
+            </Card>
+          </div>
         </div>
-
-        {/* Step 1: Configure */}
-        <StepCard
-          index={1}
-          title={t("dataset.step_configure")}
-          description={t("dataset.step_configure_desc")}
-        >
-          <div className="space-y-5 pt-2">
-            <div className="grid gap-4 lg:grid-cols-[1fr_1.3fr]">
-              {/* Quality gate */}
-              <div className="min-w-0 rounded-xl border border-border bg-muted/20 p-5">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                      <Gauge className="size-4 text-primary" />
-                      {t("dataset.quality_gate")}
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {t("dataset.min_score")}
-                    </div>
-                  </div>
-                  <div className="font-mono text-3xl font-semibold tabular-nums text-foreground">
-                    {minScore}
-                  </div>
-                </div>
-                <Slider
-                  min={0}
-                  max={5}
-                  step={1}
-                  value={[minScore]}
-                  onValueChange={(v) => setMinScore(Array.isArray(v) ? v[0] : v)}
-                  className="mt-5"
-                  aria-label={t("dataset.min_score")}
-                />
-                <div className="mt-2 flex justify-between font-mono text-xs text-muted-foreground">
-                  {[0, 1, 2, 3, 4, 5].map((score) => (
-                    <span key={score}>{score}</span>
-                  ))}
-                </div>
-              </div>
-
-              {/* Filters */}
-              <div className="flex min-w-0 flex-col gap-4 rounded-xl border border-border bg-muted/20 p-5">
-                <div className="flex flex-wrap items-center gap-2">
-                  <TimeRangePicker
-                    value={timeRange}
-                    customStart={customStart}
-                    customEnd={customEnd}
-                    onChange={(key, cs, ce) => {
-                      setTimeRange(key);
-                      setCustomStart(cs);
-                      setCustomEnd(ce);
-                    }}
-                  />
-                  <MultiSelectPill
-                    label={t("sessions.filter_model")}
-                    options={modelOptions}
-                    value={selectedModels}
-                    onChange={setSelectedModels}
-                    searchable
-                    emptyText={t("dataset.no_models")}
-                  />
-                  {activeFilters > 0 && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleClearFilters}
-                      className="gap-1.5 text-muted-foreground hover:text-foreground"
-                    >
-                      <RotateCcw className="size-3.5" />
-                      {t("dataset.clear_filters")}
-                    </Button>
-                  )}
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="outline" className="gap-1.5 rounded-lg px-3 py-1.5">
-                    <Filter className="size-3 text-primary" />
-                    {t("dataset.export_filter_score")}: {minScore}
-                  </Badge>
-                  <Badge variant="outline" className="gap-1.5 rounded-lg px-3 py-1.5">
-                    <SlidersHorizontal className="size-3 text-primary" />
-                    {selectedModels.length > 0
-                      ? `${selectedModels.length} ${t("dataset.export_filter_models")}`
-                      : t("dataset.export_filter_all_models")}
-                  </Badge>
-                  <Badge variant="outline" className="gap-1.5 rounded-lg px-3 py-1.5">
-                    <FileJson className="size-3 text-primary" />
-                    {t("dataset.export_format_value")}
-                  </Badge>
-                </div>
-              </div>
-            </div>
-          </div>
-        </StepCard>
-
-        {/* Step 2: Review */}
-        <StepCard
-          index={2}
-          title={t("dataset.step_review")}
-          description={t("dataset.step_review_desc")}
-        >
-          <div className="space-y-5 pt-2">
-            {/* Metric cards */}
-            <div className="grid gap-3 md:grid-cols-3">
-              <MetricCard
-                label={t("dataset.total_sessions")}
-                value={formatInteger(totalSessions)}
-                loading={loadingPreview}
-              />
-              <MetricCard
-                label={t("dataset.top_model")}
-                value={topModel}
-                loading={loadingPreview}
-                textValue
-              />
-              <MetricCard
-                label={t("dataset.export_format")}
-                value={t("dataset.export_format_value")}
-                loading={loadingPreview}
-                textValue
-              />
-            </div>
-
-            {totalSessions === 0 && !loadingPreview ? (
-              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/10 px-4 py-12 text-center">
-                <Database className="mb-3 size-8 text-muted-foreground/30" />
-                <div className="font-medium text-foreground">{t("dataset.no_data")}</div>
-                <div className="mt-1 text-sm text-muted-foreground">{t("dataset.empty_hint")}</div>
-              </div>
-            ) : (
-              <div className="grid gap-4 lg:grid-cols-2">
-                <DistributionList
-                  title={t("dataset.score_distribution")}
-                  items={scoreItems}
-                  emptyText={t("dataset.no_data")}
-                />
-                <DistributionList
-                  title={t("dataset.model_distribution")}
-                  items={modelItems}
-                  emptyText={t("dataset.no_models")}
-                />
-              </div>
-            )}
-
-            {/* Format preview */}
-            <Collapsible
-              open={showFormatPreview}
-              onOpenChange={setShowFormatPreview}
-              className="overflow-hidden rounded-xl border border-border"
-            >
-              <CollapsibleTrigger className="flex min-h-12 w-full items-center justify-between gap-3 bg-muted/20 px-5 py-3.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/40">
-                <span className="flex items-center gap-2.5">
-                  <Eye className="size-4 text-primary" />
-                  {showFormatPreview
-                    ? t("dataset.preview_toggle_hide")
-                    : t("dataset.preview_toggle_show")}
-                </span>
-                <ChevronDown className="size-4 text-muted-foreground in-data-panel-open:rotate-180" />
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <div className="border-t border-border px-5 py-4">
-                  {loadingFormat ? (
-                    <Skeleton className="h-48 w-full rounded-lg" />
-                  ) : formatPreview?.sharegptJson ? (
-                    <div className="space-y-3">
-                      <div className="text-xs text-muted-foreground">
-                        {replaceVars(t("dataset.sample_of"), {
-                          current: String((formatPreview.offset ?? 0) + 1),
-                          total: String(formatPreview.totalCount ?? 0),
-                        })}
-                      </div>
-                      <HighlightedCode
-                        code={prettyJSON(formatPreview.sharegptJson)}
-                        language="json"
-                        size="sm"
-                        className="max-h-96"
-                      />
-                    </div>
-                  ) : (
-                    <div className="rounded-lg border border-dashed border-border px-3 py-8 text-center text-sm text-muted-foreground">
-                      {t("dataset.no_data")}
-                    </div>
-                  )}
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
-          </div>
-        </StepCard>
-
-        {/* Step 3: Export */}
-        <Card className="border-primary/20 bg-primary/[0.03]">
-          <CardHeader>
-            <div className="flex items-start gap-3">
-              <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
-                3
-              </div>
-              <div>
-                <CardTitle>{t("dataset.step_export")}</CardTitle>
-                <CardDescription className="mt-1">{t("dataset.step_export_desc")}</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <Separator className="mx-4" />
-          <CardContent>
-            {/* 操作列定宽：auto 列会随译文长度伸缩，连带挤压左侧摘要列 */}
-            <div className="grid gap-5 pt-2 lg:grid-cols-[1fr_22rem] lg:items-end">
-              {/* Export summary */}
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <StatPill label={t("dataset.export_filter_score")} value={String(minScore)} />
-                <StatPill
-                  label={t("dataset.export_filter_models")}
-                  value={selectedModels.join(", ") || t("dataset.export_filter_all_models")}
-                />
-                <StatPill
-                  label={t("dataset.export_filter_time")}
-                  value={formatTimeRange(params.startTime, params.endTime)}
-                />
-                <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3.5 py-2.5 text-sm">
-                  <FileJson className="size-4 text-primary" />
-                  <span className="font-mono text-xs font-medium text-foreground">
-                    {t("dataset.export_format_value")}
-                  </span>
-                </div>
-              </div>
-
-              {/* Export action */}
-              <div className="min-w-64 space-y-3 rounded-xl border border-primary/15 bg-card p-4">
-                <CardDescription>
-                  {replaceVars(t("dataset.export_confirm_total"), {
-                    total: formatInteger(totalSessions),
-                  })}
-                </CardDescription>
-                {exporting && <Progress value={exportProgress} />}
-                <Button
-                  className="h-11 w-full"
-                  size="lg"
-                  onClick={handleExport}
-                  disabled={exporting || loadingPreview || totalSessions === 0}
-                >
-                  {exporting ? (
-                    <Spinner data-icon="inline-start" />
-                  ) : (
-                    totalSessions > 0 && <Download data-icon="inline-start" />
-                  )}
-                  {exporting
-                    ? t("dataset.exporting")
-                    : totalSessions === 0 && !loadingPreview
-                      ? t("dataset.export_empty")
-                      : t("dataset.export")}
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      </TooltipProvider>
     </PermissionGuard>
   );
 }

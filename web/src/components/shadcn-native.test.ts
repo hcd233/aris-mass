@@ -59,7 +59,7 @@ describe("① 反馈类", () => {
   });
 
   it("dataset 进度条改用 Progress", () => {
-    const src = read("app/(dashboard)/dataset/page.tsx");
+    const src = read("components/dataset/result-bar.tsx");
     expect(src).toContain("<Progress");
     expect(src).not.toMatch(/h-full rounded-full bg-primary/);
   });
@@ -97,9 +97,12 @@ describe("② 表单与列表", () => {
     expect(read(p)).toContain("<ScrollArea");
   });
 
-  it("代码 / JSON 预览用 ScrollArea", () => {
-    expect(read("app/(dashboard)/dataset/page.tsx")).not.toMatch(/overflow-auto/);
-  });
+  it.each(["app/(dashboard)/dataset/page.tsx", "components/dataset/sample-inspector.tsx"])(
+    "代码 / JSON 预览不手写 overflow-auto：%s",
+    (p) => {
+      expect(read(p)).not.toMatch(/overflow-auto/);
+    },
+  );
 });
 
 describe("③ 组合修正", () => {
@@ -349,7 +352,7 @@ describe("⑦ AI Elements", () => {
     });
 
     it("dataset JSON 预览用 HighlightedCode，不再注入 HTML", () => {
-      const src = read("app/(dashboard)/dataset/page.tsx");
+      const src = read("components/dataset/sample-inspector.tsx");
       expect(src).toContain("<HighlightedCode");
       expect(src).not.toContain("highlight.js");
       expect(src).not.toContain("dangerouslySetInnerHTML");

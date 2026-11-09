@@ -80,6 +80,10 @@ func (r *fakeSessionReadRepo) ListSessionsForExport(ctx context.Context, f sessi
 	return nil, nil
 }
 
+func (r *fakeSessionReadRepo) FindSessionForExportAt(ctx context.Context, f session.ExportFilter, offset int) (*session.ExportSessionRow, int, error) {
+	return nil, 0, nil
+}
+
 func (r *fakeSessionReadRepo) PreviewExport(ctx context.Context, f session.ExportFilter) (*session.ExportPreview, error) {
 	return nil, nil
 }

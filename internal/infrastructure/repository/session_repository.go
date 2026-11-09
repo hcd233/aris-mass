@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bytedance/sonic"
 	"github.com/samber/lo"
 	"github.com/samber/mo"
 	"gorm.io/gorm"
@@ -838,11 +837,23 @@ func toSessionAggregate(m *dbmodel.Session) *aggregate.Session {
 
 // exportSessionRow 导出查询的扁平行模型
 type exportSessionRow struct {
-	ID         uint     `gorm:"column:id"`
-	Score      *int     `gorm:"column:score"`
-	MessageIDs []uint   `gorm:"column:message_ids;serializer:json"`
-	ToolIDs    []uint   `gorm:"column:tool_ids;serializer:json"`
-	ModelIDs   []string `gorm:"column:model_ids;serializer:json"`
+	ID         uint      `gorm:"column:id"`
+	CreatedAt  time.Time `gorm:"column:created_at"`
+	Score      *int      `gorm:"column:score"`
+	MessageIDs []uint    `gorm:"column:message_ids;serializer:json"`
+	ToolIDs    []uint    `gorm:"column:tool_ids;serializer:json"`
+	ModelIDs   []string  `gorm:"column:model_ids;serializer:json"`
+}
+
+func toExportSessionRow(row exportSessionRow, _ int) *session.ExportSessionRow {
+	return &session.ExportSessionRow{
+		ID:         row.ID,
+		CreatedAt:  row.CreatedAt,
+		Score:      row.Score,
+		MessageIDs: row.MessageIDs,
+		ToolIDs:    row.ToolIDs,
+		ModelIDs:   row.ModelIDs,
+	}
 }
 
 func applyExportFilter(sql *gorm.DB, f session.ExportFilter) *gorm.DB {
@@ -851,7 +862,7 @@ func applyExportFilter(sql *gorm.DB, f session.ExportFilter) *gorm.DB {
 		sql = sql.Where(constant.FieldScore+" >= ?", f.MinScore)
 	}
 	if len(f.ModelIDs) > 0 {
-		sql = sql.Where(constant.SessionExportModelFilterSQL, string(lo.Must1(sonic.Marshal(f.ModelIDs))))
+		sql = sql.Where(constant.SessionExportModelFilterSQL, f.ModelIDs)
 	}
 	if !f.StartTime.IsZero() {
 		sql = sql.Where(constant.FieldCreatedAt+" >= ?", f.StartTime)
@@ -860,7 +871,7 @@ func applyExportFilter(sql *gorm.DB, f session.ExportFilter) *gorm.DB {
 		sql = sql.Where(constant.FieldCreatedAt+" <= ?", f.EndTime)
 	}
 	// OwnerIDs 为 nil 表示不过滤（admin 路径）；非 nil 且为空（用户名下无 Key）
-	// 由两个导出入口短路返回空结果，此处不会收到非 nil 空列表
+	// 由各导出入口短路返回空结果，此处不会收到非 nil 空列表
 	if f.OwnerIDs != nil {
 		sql = sql.Where(fmt.Sprintf(constant.DBConditionInTemplate, constant.FieldAPIKeyID), f.OwnerIDs)
 	}
@@ -884,55 +895,112 @@ func (r *sessionReadRepository) ListSessionsForExport(ctx context.Context, f ses
 	if err := sql.Find(&rows).Error; err != nil {
 		return nil, ierr.Wrap(ierr.ErrDBQuery, err, "list sessions for export")
 	}
-	return lo.Map(rows, func(row exportSessionRow, _ int) *session.ExportSessionRow {
-		return &session.ExportSessionRow{
-			ID:         row.ID,
-			Score:      row.Score,
-			MessageIDs: row.MessageIDs,
-			ToolIDs:    row.ToolIDs,
-			ModelIDs:   row.ModelIDs,
-		}
-	}), nil
+	return lo.Map(rows, toExportSessionRow), nil
 }
 
-// exportPreviewRow 预览聚合查询的扁平行模型
-type exportPreviewRow struct {
-	Score   *int   `gorm:"column:score"`
-	ModelID string `gorm:"column:model"`
+// FindSessionForExportAt 按 id 升序取筛选结果的第 offset 条（越界钳到末条）及匹配总数
+func (r *sessionReadRepository) FindSessionForExportAt(ctx context.Context, f session.ExportFilter, offset int) (*session.ExportSessionRow, int, error) {
+	// 归属守卫同 ListSessionsForExport：名下无 Key 不得退化为全量
+	if f.OwnerIDs != nil && len(f.OwnerIDs) == 0 {
+		return nil, 0, nil
+	}
+	db := r.db.WithContext(ctx)
+
+	var total int64
+	if err := applyExportFilter(db.Model(&dbmodel.Session{}), f).Count(&total).Error; err != nil {
+		return nil, 0, ierr.Wrap(ierr.ErrDBQuery, err, "count sessions for export")
+	}
+	if total == 0 {
+		return nil, 0, nil
+	}
+
+	var rows []exportSessionRow
+	err := applyExportFilter(db.Model(&dbmodel.Session{}).Select(constant.SessionExportSelect), f).
+		Order(clause.OrderByColumn{Column: clause.Column{Name: constant.FieldID}, Desc: false}).
+		Offset(min(max(offset, 0), int(total)-1)).
+		Limit(1).
+		Find(&rows).Error
+	if err != nil {
+		return nil, 0, ierr.Wrap(ierr.ErrDBQuery, err, "find session for export")
+	}
+	// 计数与取行之间会话被删除时可能取空，按无匹配处理
+	if len(rows) == 0 {
+		return nil, 0, nil
+	}
+	return toExportSessionRow(rows[0], 0), int(total), nil
 }
 
+// exportSummaryRow 预览汇总行
+type exportSummaryRow struct {
+	TotalSessions int `gorm:"column:total_sessions"`
+	TotalMessages int `gorm:"column:total_messages"`
+	ToolSessions  int `gorm:"column:tool_sessions"`
+}
+
+// exportScoreBucketRow 评分直方图行（score 0 表示未评分）
+type exportScoreBucketRow struct {
+	Score    int `gorm:"column:score"`
+	Sessions int `gorm:"column:sessions"`
+}
+
+// exportModelFacetRow 模型分面行
+type exportModelFacetRow struct {
+	Model    string `gorm:"column:model"`
+	Sessions int    `gorm:"column:sessions"`
+}
+
+// PreviewExport 按筛选条件统计预览
+//
+//	三条聚合查询：汇总应用全部条件；评分直方图去掉 MinScore、模型分面去掉 ModelIDs（分面语义），
+//	前端据此在直方图上标出阈值砍掉的部分、在模型列表上显示勾选后会增加的会话数。
 func (r *sessionReadRepository) PreviewExport(ctx context.Context, f session.ExportFilter) (*session.ExportPreview, error) {
+	preview := &session.ExportPreview{
+		ScoreHistogram: map[int]int{},
+		ModelFacets:    map[string]int{},
+	}
 	// OwnerIDs 为 nil 表示不过滤（admin 路径）；非 nil 且为空（用户名下无 Key）
 	// 短路返回空预览，防止空 owner 列表退化为全量统计（与导出主链路守卫一致）
 	if f.OwnerIDs != nil && len(f.OwnerIDs) == 0 {
-		return &session.ExportPreview{}, nil
+		return preview, nil
 	}
 	db := r.db.WithContext(ctx)
-	sql := db.Model(&dbmodel.Session{}).
-		Select(constant.SessionExportPreviewSelect).
-		Where(constant.SessionExportModelIsNotNull)
 
-	sql = applyExportFilter(sql, f)
-
-	var rows []exportPreviewRow
-	if err := sql.Scan(&rows).Error; err != nil {
-		return nil, ierr.Wrap(ierr.ErrDBQuery, err, "preview export")
+	var summary exportSummaryRow
+	if err := applyExportFilter(db.Model(&dbmodel.Session{}).Select(constant.SessionExportSummarySelect), f).
+		Scan(&summary).Error; err != nil {
+		return nil, ierr.Wrap(ierr.ErrDBQuery, err, "preview export summary")
 	}
 
-	preview := &session.ExportPreview{
-		ScoreDistribution: make(map[int]int),
-		ModelDistribution: make(map[string]int),
+	withoutScore := f
+	withoutScore.MinScore = 0
+	var scores []exportScoreBucketRow
+	if err := applyExportFilter(db.Model(&dbmodel.Session{}).Select(constant.SessionExportScoreHistogramSelect), withoutScore).
+		Group(constant.SessionExportScoreBucket).
+		Scan(&scores).Error; err != nil {
+		return nil, ierr.Wrap(ierr.ErrDBQuery, err, "preview export score histogram")
 	}
 
-	for _, row := range rows {
-		preview.TotalSessions++
-		if row.Score != nil {
-			preview.ScoreDistribution[*row.Score]++
+	withoutModels := f
+	withoutModels.ModelIDs = nil
+	var models []exportModelFacetRow
+	if err := applyExportFilter(db.Model(&dbmodel.Session{}).
+		Select(constant.SessionExportModelFacetSelect).
+		Joins(constant.SessionExportModelFacetJoin), withoutModels).
+		Group(constant.SessionExportModelFacetGroup).
+		Scan(&models).Error; err != nil {
+		return nil, ierr.Wrap(ierr.ErrDBQuery, err, "preview export model facets")
+	}
+
+	preview.TotalSessions = summary.TotalSessions
+	preview.TotalMessages = summary.TotalMessages
+	preview.ToolSessions = summary.ToolSessions
+	for _, b := range scores {
+		preview.ScoreHistogram[b.Score] = b.Sessions
+	}
+	for _, m := range models {
+		if m.Model != "" {
+			preview.ModelFacets[m.Model] = m.Sessions
 		}
-		if row.ModelID != "" {
-			preview.ModelDistribution[row.ModelID]++
-		}
 	}
-
 	return preview, nil
 }

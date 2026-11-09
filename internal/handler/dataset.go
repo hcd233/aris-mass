@@ -75,8 +75,10 @@ func (h *datasetHandler) HandlePreview(ctx context.Context, req *dto.DatasetPrev
 	}
 
 	rsp.TotalSessions = result.TotalSessions
-	rsp.ScoreDistribution = result.ScoreDistribution
-	rsp.ModelDistribution = result.ModelDistribution
+	rsp.TotalMessages = result.TotalMessages
+	rsp.ToolSessions = result.ToolSessions
+	rsp.ScoreHistogram = result.ScoreHistogram
+	rsp.ModelFacets = result.ModelFacets
 	return apiutil.WrapHTTPResponse(rsp, nil)
 }
 
@@ -137,6 +139,9 @@ func (h *datasetHandler) HandlePreviewFormat(ctx context.Context, req *dto.Datas
 	}
 
 	rsp.SessionID = result.SessionID
+	rsp.CreatedAt = result.CreatedAt
+	rsp.Score = result.Score
+	rsp.ModelIDs = result.ModelIDs
 	rsp.Offset = result.Offset
 	rsp.TotalCount = result.TotalCount
 	rsp.ShareGPTJSON = result.ShareGPTJSON
