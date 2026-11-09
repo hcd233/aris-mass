@@ -8,11 +8,9 @@ import (
 
 	"github.com/hcd233/aris-mass/internal/common/enum"
 	"github.com/hcd233/aris-mass/internal/common/vo"
-	"github.com/hcd233/aris-mass/internal/domain/conversation/aggregate"
 	"github.com/hcd233/aris-mass/internal/dto"
 	dbmodel "github.com/hcd233/aris-mass/internal/infrastructure/database/model"
 	"github.com/hcd233/aris-mass/internal/infrastructure/pool"
-	"github.com/hcd233/aris-mass/internal/infrastructure/repository"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
@@ -31,19 +29,6 @@ func newTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-func equivalentReasoningMessages() []*vo.UnifiedMessage {
-	return []*vo.UnifiedMessage{
-		{
-			Role:    enum.RoleUser,
-			Content: &vo.UnifiedContent{Text: "same reasoning"},
-		},
-		{
-			Role:             enum.RoleUser,
-			ReasoningContent: "same reasoning",
-		},
-	}
-}
-
 func equivalentToolCallMessages() []*vo.UnifiedMessage {
 	return []*vo.UnifiedMessage{
 		{
@@ -59,32 +44,6 @@ func equivalentToolCallMessages() []*vo.UnifiedMessage {
 			},
 		},
 	}
-}
-
-func TestMessageRepositoryBatchSaveDedup_DeduplicatesEquivalentMessagesInsideBatch(t *testing.T) {
-	t.Parallel()
-	db := newTestDB(t)
-	repo := repository.NewMessageRepository(db)
-	unifiedMessages := equivalentReasoningMessages()
-	checksum := vo.ComputeMessageChecksum(unifiedMessages[0], "", nil)
-	if checksum != vo.ComputeMessageChecksum(unifiedMessages[1], "", nil) {
-		t.Fatal("test setup expected content/reasoning messages to share checksum")
-	}
-
-	messages := make([]*aggregate.Message, 0, len(unifiedMessages))
-	for _, msg := range unifiedMessages {
-		record, err := aggregate.RecordMessage(msg, "", checksum)
-		if err != nil {
-			t.Fatalf("RecordMessage returned error: %v", err)
-		}
-		messages = append(messages, record)
-	}
-
-	ids, err := repo.BatchSaveDedup(context.Background(), messages)
-	if err != nil {
-		t.Fatalf("BatchSaveDedup returned error: %v", err)
-	}
-	assertDeduplicatedMessages(t, db, ids)
 }
 
 func TestMessageStoreTask_DeduplicatesEquivalentMessagesInsideBatch(t *testing.T) {

@@ -39,16 +39,6 @@ func DefaultAPIKeyQuota() APIKeyQuota {
 	return q
 }
 
-// MaxCount 返回配额上限
-//
-//	@receiver q APIKeyQuota
-//	@return int
-//	@author centonhuang
-//	@update 2026-04-25 15:00:00
-func (q APIKeyQuota) MaxCount() int {
-	return q.max
-}
-
 // Allows 判断在当前已有数量下是否允许新建
 //
 //	@receiver q APIKeyQuota

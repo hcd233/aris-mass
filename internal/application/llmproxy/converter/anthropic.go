@@ -6,12 +6,10 @@
 package converter
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
 	"github.com/bytedance/sonic"
-	"github.com/google/uuid"
 	"github.com/hcd233/aris-mass/internal/common/constant"
 	"github.com/hcd233/aris-mass/internal/common/enum"
 	"github.com/hcd233/aris-mass/internal/common/ierr"
@@ -464,9 +462,4 @@ func convertAnthropicContentToOpenAIMessage(blocks []*dto.AnthropicContentBlock)
 	}
 
 	return msg, nil
-}
-
-// GenerateOpenAIChunkID 生成 OpenAI 风格的 chunk ID
-func GenerateOpenAIChunkID() string {
-	return fmt.Sprintf(constant.OpenAIChunkIDTemplate, uuid.New().String())
 }

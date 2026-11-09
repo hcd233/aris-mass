@@ -3,8 +3,7 @@ package constant
 import "time"
 
 const (
-	LockKeyTemplateMiddleware = "%s:%s:%v"
-	JWTUserCacheKeyTemplate   = "jwt:user:%d"
+	JWTUserCacheKeyTemplate = "jwt:user:%d"
 	// JWTUserCacheMaxTTL 用户权限信息缓存上限。
 	//
 	// 权限变更走命令层主动失效；但直接改库（admin 提升/降级）没有失效入口，

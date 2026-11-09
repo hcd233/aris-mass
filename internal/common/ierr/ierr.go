@@ -5,12 +5,10 @@
 package ierr
 
 import (
-	"context"
 	"errors"
 	"fmt"
 
 	"github.com/hcd233/aris-mass/internal/common/model"
-	"github.com/hcd233/aris-mass/internal/i18n"
 )
 
 // InternalError 内部错误，携带哨兵错误 + 可选上下文信息 + 可选原始错误
@@ -142,10 +140,4 @@ func ToBizError(err error, fallback *model.Error) *model.Error {
 		return ie.BizError()
 	}
 	return fallback
-}
-
-// ToBizErrorLocalized 从 error 中提取业务错误并本地化消息，若非 InternalError 则返回 fallback 的本地化版本
-func ToBizErrorLocalized(ctx context.Context, err error, fallback *model.Error) *model.Error {
-	bizErr := ToBizError(err, fallback)
-	return bizErr.Localize(i18n.FromCtx(ctx))
 }
