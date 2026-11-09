@@ -607,6 +607,8 @@
   "layout.aris_mass": "Aris MaaS",
   "layout.user": "ユーザー",
   "layout.sidebar_toggle": "サイドバーの切り替え",
+  "layout.language": "言語",
+  "layout.account_menu": "アカウントメニュー",
   "charts.failed_to_load": "読み込みに失敗しました",
   "charts.retry": "再試行",
   "share_page.network_error": "予期しないネットワークエラー",

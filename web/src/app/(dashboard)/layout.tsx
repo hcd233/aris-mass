@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { useT } from "@/lib/i18n";
+import { useI18n, useT, type Locale } from "@/lib/i18n";
+import { useTheme } from "@/lib/theme";
 import {
   NAV_GROUPS,
   findActiveGroupKey,
@@ -37,18 +38,36 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { PreferenceControls } from "@/components/preference-controls";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { LANGUAGE_LABELS, LOCALE_LIST } from "@/components/language-switcher";
+import { centerOf } from "@/components/theme/theme-switcher";
 import { NavIndicator } from "@/components/motion/nav-indicator";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { NavCommandPalette, NavSearchButton } from "@/components/nav-command-palette";
 import {
   ChevronDown,
+  ChevronsUpDown,
+  Feather,
+  Languages,
   Lock,
   LogOut,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
   Search,
+  Sparkles,
 } from "lucide-react";
 import { TruncatedText } from "@/components/truncated-text";
 import { cn } from "@/lib/utils";
@@ -212,6 +231,9 @@ function SidebarNav({
 function UserBar({ collapsed = false }: { collapsed?: boolean }) {
   const { user, logout } = useAuth();
   const t = useT();
+  const { locale, setLocale } = useI18n();
+  const { theme, setTheme } = useTheme();
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   if (!user) return null;
 
@@ -233,57 +255,102 @@ function UserBar({ collapsed = false }: { collapsed?: boolean }) {
     </Avatar>
   );
 
-  // 窄栏：偏好控件竖排 + 头像（悬停看身份），不再塞进卡片里被挤压
-  if (collapsed) {
-    return (
-      <div className="flex flex-col items-center gap-1.5">
-        <PreferenceControls tone="sidebar" orientation="vertical" />
-        <TooltipProvider>
-          <TooltipRoot>
-            <TooltipTrigger render={<span className="mt-1 flex rounded-full" />}>
-              {avatar}
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {name} · {role}
-            </TooltipContent>
-          </TooltipRoot>
-        </TooltipProvider>
-      </div>
-    );
-  }
+  const nextTheme = theme === "moonshot" ? "anthropic" : "moonshot";
+  const themeLabel = theme === "moonshot" ? t("theme.to_anthropic") : t("theme.to_moonshot");
+  const ThemeIcon = theme === "moonshot" ? Feather : Sparkles;
 
-  // 宽栏：偏好控件一行，身份一行（登出跟着账号走）；去掉卡片外壳和角色徽章，省出一行高度
+  // 底部只留一行身份：语言、主题、登出收进账户菜单。窄栏只剩头像，点开是同一个菜单。
   return (
-    <div className="flex flex-col gap-1.5 text-sidebar-foreground">
-      <PreferenceControls tone="sidebar" className="px-1" />
-      <div className="flex items-center gap-2.5 rounded-lg px-1 py-1">
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        ref={triggerRef}
+        aria-label={t("layout.account_menu")}
+        className={cn(
+          "flex items-center rounded-lg text-left text-sidebar-foreground outline-hidden transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring data-popup-open:bg-sidebar-accent",
+          collapsed ? "mx-auto size-8 justify-center" : "w-full gap-2.5 px-2 py-1.5",
+        )}
+      >
         {avatar}
-        <div className="min-w-0 flex-1">
-          <TruncatedText render={<p />} className="text-sm leading-tight font-medium" side="right">
-            {name}
-          </TruncatedText>
-          <p className="mt-0.5 text-xs leading-tight text-sidebar-foreground/70">{role}</p>
+        {!collapsed && (
+          <>
+            <span className="min-w-0 flex-1">
+              <TruncatedText
+                render={<span className="block" />}
+                className="text-sm leading-tight font-medium"
+                side="right"
+              >
+                {name}
+              </TruncatedText>
+              <span className="mt-0.5 block text-xs leading-tight text-sidebar-foreground/70">
+                {role}
+              </span>
+            </span>
+            <ChevronsUpDown className="size-4 shrink-0 text-sidebar-foreground/50" />
+          </>
+        )}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        side={collapsed ? "right" : "top"}
+        align="end"
+        sideOffset={collapsed ? 8 : 6}
+        className="w-auto min-w-(--anchor-width) sm:min-w-56"
+      >
+        <div className="flex items-center gap-2.5 px-1.5 py-1.5">
+          {avatar}
+          <div className="min-w-0 flex-1">
+            <TruncatedText render={<p />} className="text-sm leading-tight font-medium" side="top">
+              {name}
+            </TruncatedText>
+            {user.email && user.email !== name ? (
+              <TruncatedText
+                render={<p />}
+                className="mt-0.5 text-xs leading-tight text-muted-foreground"
+                side="top"
+              >
+                {user.email}
+              </TruncatedText>
+            ) : (
+              <p className="mt-0.5 text-xs leading-tight text-muted-foreground">{role}</p>
+            )}
+          </div>
         </div>
-        <TooltipProvider>
-          <TooltipRoot>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={logout}
-                  aria-label={t("nav.logout")}
-                  className="shrink-0 text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-                >
-                  <LogOut className="size-4" />
-                </Button>
-              }
-            />
-            <TooltipContent side="top">{t("nav.logout")}</TooltipContent>
-          </TooltipRoot>
-        </TooltipProvider>
-      </div>
-    </div>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <Languages />
+              <span className="flex-1">{t("layout.language")}</span>
+              <span className="text-xs text-muted-foreground">
+                {LANGUAGE_LABELS[locale].native}
+              </span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="min-w-32">
+              <DropdownMenuRadioGroup value={locale} onValueChange={(v) => setLocale(v as Locale)}>
+                {LOCALE_LIST.map(([code, lang]) => (
+                  <DropdownMenuRadioItem key={code} value={code}>
+                    {lang.native}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          <DropdownMenuItem
+            onClick={() => {
+              const anchor = triggerRef.current;
+              setTheme(nextTheme, anchor ? centerOf(anchor) : undefined);
+            }}
+          >
+            <ThemeIcon />
+            {themeLabel}
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={logout}>
+          <LogOut />
+          {t("nav.logout")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

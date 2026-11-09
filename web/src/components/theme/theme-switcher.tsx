@@ -21,7 +21,7 @@ export const PREFERENCE_TONE_CLASS: Record<PreferenceTone, string> = {
 };
 
 /** Viewport center of the clicked switch: the theme transition's origin. */
-function centerOf(el: Element) {
+export function centerOf(el: Element) {
   const r = el.getBoundingClientRect();
   return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
 }

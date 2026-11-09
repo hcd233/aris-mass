@@ -607,6 +607,8 @@
   "layout.aris_mass": "Aris MaaS",
   "layout.user": "User",
   "layout.sidebar_toggle": "Toggle sidebar",
+  "layout.language": "Language",
+  "layout.account_menu": "Account menu",
   "charts.failed_to_load": "Failed to load",
   "charts.retry": "Retry",
   "share_page.network_error": "Unexpected network error",

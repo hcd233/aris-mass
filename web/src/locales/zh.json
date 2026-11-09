@@ -607,6 +607,8 @@
   "layout.aris_mass": "Aris MaaS",
   "layout.user": "用户",
   "layout.sidebar_toggle": "切换侧边栏",
+  "layout.language": "语言",
+  "layout.account_menu": "账户菜单",
   "charts.failed_to_load": "加载失败",
   "charts.retry": "重试",
   "share_page.network_error": "意外网络错误",
