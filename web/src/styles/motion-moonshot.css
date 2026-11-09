@@ -466,9 +466,8 @@ html[data-theme="moonshot"][data-motion-tier="lite"] {
   }
 }
 
-/* ---- Checkbox「点亮」: the box ignites, the tick is caught by gravity and
- * overshoots into place. ---- */
-[data-theme="moonshot"] [data-slot="checkbox"] {
+/* ---- Checkbox / Radio「点亮」: the box ignites. ---- */
+[data-theme="moonshot"] :is([data-slot="checkbox"], [data-slot="radio-group-item"]) {
   transition:
     background-color 200ms ease,
     border-color 200ms ease,
@@ -478,19 +477,59 @@ html[data-theme="moonshot"][data-motion-tier="lite"] {
     box-shadow: 0 0 10px rgb(255 255 255 / 0.3);
   }
 }
-[data-theme="moonshot"] [data-slot="checkbox-indicator"] {
-  animation: lunar-tick 380ms var(--ease-orbit) backwards;
-}
-@keyframes lunar-tick {
-  from {
+
+/* ---- Ticks「点亮 / 熄灭」: a checkmark is caught by gravity and overshoots
+ * into place in a flash that burns off; unchecking it falls dark. Driven by
+ * Base UI's [data-starting-style] / [data-ending-style], so a tick that
+ * mounts already checked (a menu opening) does not replay. The exit must sit
+ * on the indicator itself: Base UI waits for its own animations only. ---- */
+[data-theme="moonshot"]
+  :is(
+    [data-slot="checkbox-indicator"],
+    [data-slot="dropdown-menu-checkbox-item-indicator"] > span,
+    [data-slot="dropdown-menu-radio-item-indicator"] > span
+  ) {
+  transition:
+    opacity 120ms ease,
+    scale 380ms var(--ease-orbit),
+    filter 520ms ease-out;
+  &[data-starting-style] {
     opacity: 0;
-    transform: scale(0.4);
+    scale: 0.4;
     filter: drop-shadow(0 0 6px rgb(255 255 255 / 0.8));
+  }
+  &[data-ending-style] {
+    opacity: 0;
+    scale: 0.5;
+    transition:
+      opacity 180ms var(--ease-fall),
+      scale 180ms var(--ease-fall);
+  }
+}
+
+/* ---- Radio: the dot docks on the spring; deselecting falls away. ---- */
+[data-theme="moonshot"] [data-slot="radio-group-indicator"] {
+  & > span {
+    transition:
+      scale 380ms var(--ease-orbit),
+      opacity 120ms ease;
+  }
+  &[data-starting-style] > span {
+    opacity: 0;
+    scale: 0.3;
+  }
+  &[data-ending-style] {
+    opacity: 0;
+    transition: opacity 180ms var(--ease-fall);
+  }
+  &[data-ending-style] > span {
+    scale: 0.5;
+    transition: scale 180ms var(--ease-fall);
   }
 }
 
 /* ---- Toggle / ToggleGroup「轨道停泊」: the pressed item docks with a little
- * overshoot and a faint halo; segmented items glow on the track. ---- */
+ * overshoot and a faint halo. Segmented items leave this to the thumb. ---- */
 [data-theme="moonshot"] :is([data-slot="toggle"], [data-slot="toggle-group-item"]) {
   transition:
     color 200ms ease,
@@ -502,16 +541,72 @@ html[data-theme="moonshot"][data-motion-tier="lite"] {
     scale: 0.95;
     transition-duration: 90ms;
   }
-  &[data-pressed] {
+  &[data-pressed]:not([data-variant="segmented"]) {
     animation: lunar-dock 380ms var(--ease-orbit);
   }
 }
-[data-theme="moonshot"] [data-slot="toggle-group-item"][data-pressed]:not(:focus-visible) {
+[data-theme="moonshot"]
+  [data-slot="toggle-group-item"][data-pressed]:not([data-variant="segmented"]):not(
+    :focus-visible
+  ) {
   box-shadow: 0 0 12px rgb(255 255 255 / 0.18);
 }
 @keyframes lunar-dock {
   from {
     scale: 0.92;
+  }
+}
+
+/* ---- Segmented「轨道换位」: the glowing pill (the group's ::before, placed by
+ * useSegmentThumb) swings to the chosen segment on the lunar spring; a soft
+ * afterglow (::after, beneath it) trails behind on a slower drift. Only `on`
+ * transitions: the first placement and resizes land in place. ---- */
+[data-theme="moonshot"] [data-slot="toggle-group"][data-thumb] {
+  &::before {
+    background-color: var(--background);
+    box-shadow:
+      inset 0 0 0 1px rgb(255 255 255 / 0.14),
+      0 0 12px rgb(255 255 255 / 0.1);
+  }
+  &::after {
+    z-index: -2;
+    background-color: rgb(255 255 255 / 0.2);
+    filter: blur(4px);
+    opacity: 0.5;
+  }
+  &[data-thumb="on"]::before {
+    transition:
+      translate 420ms var(--ease-orbit),
+      width 420ms var(--ease-orbit),
+      height 420ms var(--ease-orbit),
+      border-radius 420ms var(--ease-orbit);
+  }
+  &[data-thumb="on"]::after {
+    transition:
+      translate 720ms var(--ease-drift),
+      width 720ms var(--ease-drift),
+      height 720ms var(--ease-drift),
+      border-radius 720ms var(--ease-drift);
+  }
+}
+[data-theme="moonshot"] .capsule-thumb {
+  transition: transform 420ms var(--ease-orbit);
+}
+
+/* ---- StateSwap「坠落与点亮」: the old state falls out of focus, the new one
+ * pops in on the spring. ---- */
+[data-theme="moonshot"] [data-slot="state-swap"] > * {
+  transition:
+    opacity 160ms ease 40ms,
+    scale 380ms var(--ease-orbit) 40ms,
+    filter 240ms ease 40ms;
+  &[aria-hidden] {
+    scale: 0.6;
+    filter: blur(3px);
+    transition:
+      opacity 180ms var(--ease-fall),
+      scale 180ms var(--ease-fall),
+      filter 180ms var(--ease-fall);
   }
 }
 

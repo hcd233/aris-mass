@@ -56,6 +56,49 @@ html[data-motion-tier="still"] .data-morph {
   white-space: nowrap;
 }
 
+/* Segmented selection (components/motion/use-segment-thumb.ts): the group's
+ * ::before is the selected card and ::after the lunar afterglow, sized and
+ * placed from --thumb-* (data-thumb = instant | on | off). Each world styles
+ * them and decides how they travel. */
+[data-slot="toggle-group"][data-thumb]::before,
+[data-slot="toggle-group"][data-thumb]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: -1;
+  width: var(--thumb-w);
+  height: var(--thumb-h);
+  border-radius: var(--thumb-r);
+  translate: var(--thumb-x) var(--thumb-y);
+  pointer-events: none;
+}
+[data-slot="toggle-group"][data-thumb="off"]::before,
+[data-slot="toggle-group"][data-thumb="off"]::after {
+  opacity: 0;
+}
+
+/* StateSwap (components/motion/state-swap.tsx): both states share one grid
+ * cell, so the control keeps the wider one's width and never jumps; the
+ * hidden one is aria-hidden. Each world adds the cross-fade. */
+[data-slot="state-swap"] {
+  display: inline-grid;
+  gap: inherit;
+}
+[data-slot="state-swap"] > * {
+  grid-area: 1 / 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: inherit;
+}
+[data-slot="state-swap"] > [aria-hidden] {
+  opacity: 0;
+}
+[data-slot="state-swap"] > [aria-hidden] [data-slot="spinner"] {
+  animation-play-state: paused;
+}
+
 /* Pseudo-element overlays (card light, popover beam) need a positioned
  * host. Kept in the components layer so an explicit `absolute` / `fixed`
  * utility on the same element still wins. */

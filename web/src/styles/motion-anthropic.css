@@ -367,26 +367,60 @@
   transition: translate 220ms var(--ease-settle);
 }
 
-/* ---- Checkbox「落印」: the box soaks up ink, the tick is stamped in. ---- */
-[data-theme="anthropic"] [data-slot="checkbox"] {
+/* ---- Checkbox / Radio: the box soaks up ink. ---- */
+[data-theme="anthropic"] :is([data-slot="checkbox"], [data-slot="radio-group-item"]) {
   transition:
     background-color 260ms var(--ease-ink),
     border-color 260ms var(--ease-ink),
     box-shadow 180ms var(--ease-settle);
 }
-[data-theme="anthropic"] [data-slot="checkbox-indicator"] {
-  animation: atelier-stamp 240ms var(--ease-settle) backwards;
-}
-@keyframes atelier-stamp {
-  from {
+
+/* ---- Ticks「运笔」: a checkmark is written stroke by stroke, short leg first
+ * (the dash is pulled in from the path's end); unchecking lets the ink dry
+ * off. Driven by Base UI's [data-starting-style] / [data-ending-style], so a
+ * tick that mounts already checked (a menu opening) is not redrawn — only a
+ * real change is. The exit must sit on the indicator itself: Base UI
+ * unmounts it once *its own* animations finish, not its subtree's. ---- */
+[data-theme="anthropic"]
+  :is(
+    [data-slot="checkbox-indicator"],
+    [data-slot="dropdown-menu-checkbox-item-indicator"] > span,
+    [data-slot="dropdown-menu-radio-item-indicator"] > span
+  ) {
+  & path {
+    stroke-dasharray: 24;
+    transition: stroke-dashoffset 300ms var(--ease-ink) 40ms;
+  }
+  &[data-starting-style] path {
+    stroke-dashoffset: -24;
+  }
+  &[data-ending-style] {
     opacity: 0;
-    transform: scale(0.6) rotate(-8deg);
     filter: blur(0.6px);
+    transition:
+      opacity 140ms var(--ease-lift),
+      filter 140ms var(--ease-lift);
   }
 }
 
-/* ---- Toggle / ToggleGroup「压印切换」: the pressed state inks in; segmented
- * items settle onto the track like a card placed on paper. ---- */
+/* ---- Radio「墨滴」: the dot drops onto the paper and settles. ---- */
+[data-theme="anthropic"] [data-slot="radio-group-indicator"] {
+  & > span {
+    transition:
+      scale 260ms var(--ease-settle),
+      opacity 180ms var(--ease-settle);
+  }
+  &[data-starting-style] > span {
+    opacity: 0;
+    scale: 0.3;
+  }
+  &[data-ending-style] {
+    opacity: 0;
+    transition: opacity 140ms var(--ease-lift);
+  }
+}
+
+/* ---- Toggle / ToggleGroup「压印切换」: the pressed state inks in. ---- */
 [data-theme="anthropic"] :is([data-slot="toggle"], [data-slot="toggle-group-item"]) {
   transition:
     color 260ms var(--ease-ink),
@@ -398,12 +432,52 @@
     transition-duration: 90ms;
   }
 }
-/* :not(:focus-visible) — box-shadow carries the Tailwind focus ring; never mask it. */
-[data-theme="anthropic"]
-  [data-slot="toggle-group-item"][data-variant="segmented"][data-pressed]:not(:focus-visible) {
-  box-shadow:
-    0 1px 2px 0 rgb(31 26 20 / 0.08),
-    0 0 0 1px rgb(31 26 20 / 0.04);
+
+/* ---- Segmented「纸卡平移」: one card (the group's ::before, placed by
+ * useSegmentThumb) slides to the chosen segment and settles, no rebound.
+ * Only `on` transitions: the first placement and resizes land in place. ---- */
+[data-theme="anthropic"] [data-slot="toggle-group"][data-thumb] {
+  &::before {
+    background-color: var(--background);
+    box-shadow:
+      0 1px 2px 0 rgb(31 26 20 / 0.08),
+      0 0 0 1px rgb(31 26 20 / 0.04);
+  }
+  &::after {
+    display: none;
+  }
+  &[data-thumb="on"]::before {
+    transition:
+      translate 320ms var(--ease-settle),
+      width 320ms var(--ease-settle),
+      height 320ms var(--ease-settle),
+      border-radius 320ms var(--ease-settle);
+  }
+}
+[data-theme="anthropic"] .capsule-thumb {
+  transition: transform 320ms var(--ease-settle);
+}
+
+/* ---- StateSwap「褪墨显影」: the old state dries off, the new one surfaces a
+ * beat later; a ✓ in the new state is written like the ticks above. ---- */
+[data-theme="anthropic"] [data-slot="state-swap"] > * {
+  transition:
+    opacity 260ms var(--ease-settle) 60ms,
+    filter 260ms var(--ease-settle) 60ms;
+  & .lucide-check path {
+    stroke-dasharray: 24;
+    transition: stroke-dashoffset 300ms var(--ease-ink) 100ms;
+  }
+  &[aria-hidden] {
+    filter: blur(1.5px);
+    transition:
+      opacity 140ms var(--ease-lift),
+      filter 140ms var(--ease-lift);
+  }
+  &[aria-hidden] .lucide-check path {
+    stroke-dashoffset: -24;
+    transition: stroke-dashoffset 0s 140ms;
+  }
 }
 
 /* ---- Slider「刻刀」: the thumb is pressed into the track while dragging. ---- */

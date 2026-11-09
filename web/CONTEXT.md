@@ -231,7 +231,7 @@ _Avoid_: animation level, quality setting
 _Avoid_: hover handler, mouse tracker
 
 **Motion Grammar（动效语法层）**:
-`src/styles/motion-anthropic.css` / `motion-moonshot.css` 中按 `[data-theme]` 定义的 token 与组件动效（页面进场、弹层进出场、按钮按压、卡片、表格、Toast、骨架、Switch、焦点环）。业务页面零改动继承；`--animate-page` / `--animate-rise` / `--animate-scale-in` 由各世界覆写。
+`src/styles/motion-anthropic.css` / `motion-moonshot.css` 中按 `[data-theme]` 定义的 token 与组件动效（页面进场、弹层进出场、按钮按压、卡片、表格、Toast、骨架、Switch、焦点环，以及勾选 / 取消、分段滑块、按钮状态切换这类 State Switch）。业务页面零改动继承；`--animate-page` / `--animate-rise` / `--animate-scale-in` 由各世界覆写。
 _Avoid_: animation css, theme animations
 
 **Signature Moment（签名时刻）**:
