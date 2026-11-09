@@ -264,6 +264,9 @@ const (
 	TriggerChangeMessage          = "changed"
 	TriggerLowFreqRebuildInterval = 5 * time.Minute
 	TriggerVersionPollInterval    = 2 * time.Second
+	// TriggerRebuildBackoff rebuild 失败后的退避：版本轮询每 2s 一次，
+	// 不加退避会在 DB 故障期间持续打满查询。
+	TriggerRebuildBackoff = 10 * time.Second
 
 	// ── Cron Pub/Sub ──
 	CronReloadChannel = "cron:reload"

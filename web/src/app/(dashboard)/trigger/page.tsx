@@ -209,6 +209,7 @@ export default function TriggerPage() {
           String(rsp.deletedCount ?? ids.length),
         ),
       );
+      setSelected(new Set());
       fetchItems(pageInfo.page, pageInfo.pageSize);
     } catch (err) {
       showErrorToast(err, { title: t("trigger.batch_delete_error") });
@@ -217,6 +218,15 @@ export default function TriggerPage() {
       setBatchDeleteConfirmOpen(false);
     }
   }, [selected, fetchItems, pageInfo.page, pageInfo.pageSize, t]);
+
+  const handlePageChange = useCallback(
+    (page: number, pageSize: number) => {
+      // 翻页后清空选择，避免批量删除带上不可见的行
+      setSelected(new Set());
+      void fetchItems(page, pageSize, queryParams.freeText || undefined);
+    },
+    [fetchItems, queryParams.freeText],
+  );
 
   return (
     <PermissionGuard adminOnly module="trigger">
@@ -421,9 +431,7 @@ export default function TriggerPage() {
                   )}
                   <PaginationBar
                     pageInfo={pageInfo}
-                    onChange={(page, pageSize) =>
-                      fetchItems(page, pageSize, queryParams.freeText || undefined)
-                    }
+                    onChange={handlePageChange}
                     totalLabel={t("pagination.items")}
                   />
                 </>

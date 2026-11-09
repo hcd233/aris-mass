@@ -38,11 +38,15 @@ export function useRuntimeMetrics() {
   const [fetching, setFetching] = useState(false);
   const [failed, setFailed] = useState(false);
   const sinceRef = useRef(0);
+  // 换 range 时自增；旧 range 的在途响应回来后直接丢弃，避免旧窗口的点/游标污染新视图
+  const generationRef = useRef(0);
 
   const poll = useCallback(async (rangeKey: RangeKey) => {
+    const generation = generationRef.current;
     setFetching(true);
     try {
       const rsp = await api.getRuntimeMetrics({ range: rangeKey, since: sinceRef.current });
+      if (generation !== generationRef.current) return;
       const s = rsp.series ?? {};
       const now = Math.floor(Date.now() / 1000);
       const cutoff = now - RANGE_WINDOW_SEC[rangeKey];
@@ -61,11 +65,14 @@ export function useRuntimeMetrics() {
       if (rsp.latestTime > 0) sinceRef.current = rsp.latestTime;
       setFailed(false);
     } catch {
+      if (generation !== generationRef.current) return;
       // 轮询失败保留旧曲线，只标记失败：首次加载失败时面板给重试入口
       setFailed(true);
     } finally {
-      setLoading(false);
-      setFetching(false);
+      if (generation === generationRef.current) {
+        setLoading(false);
+        setFetching(false);
+      }
     }
   }, []);
 
@@ -74,6 +81,7 @@ export function useRuntimeMetrics() {
 
   /* eslint-disable react-hooks/set-state-in-effect -- range 切换需重置时序状态并立即触发首次拉取 */
   useEffect(() => {
+    generationRef.current += 1;
     sinceRef.current = 0;
     setState(EMPTY_STATE);
     setLoading(true);

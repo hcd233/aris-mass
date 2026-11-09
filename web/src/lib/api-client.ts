@@ -96,6 +96,14 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "";
 const API_PREFIX = "/api/web/v1";
 const AUTH_TOAST_DURATION_MS = 10_000;
 
+/**
+ * 凭据已被清除的广播事件。
+ *
+ * api-client 是唯一持有刷新失败判定权的地方，但它不能直接改 AuthProvider 的 React state；
+ * 由 AuthProvider 订阅该事件清空 user，避免出现「storage 已清、内存仍是已登录」的半登录态。
+ */
+export const AUTH_EXPIRED_EVENT = "aris:session-expired";
+
 export class ApiError extends Error {
   status: number;
   body: string;
@@ -227,8 +235,14 @@ class ApiClient {
   }
 
   private clearAuthAndPromptLogin(): void {
+    const hadCredentials =
+      localStorage.getItem("access_token") !== null ||
+      localStorage.getItem("refresh_token") !== null;
     localStorage.removeItem("access_token");
     localStorage.removeItem("refresh_token");
+    window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+    // 并发 401 会各自走到这里：凭据已经清理过就不再重复弹 toast
+    if (!hadCredentials) return;
     toast.error(translate("auth.session_expired"), {
       description: translate("auth.please_login"),
       duration: AUTH_TOAST_DURATION_MS,

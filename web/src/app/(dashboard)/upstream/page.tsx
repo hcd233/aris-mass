@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import { useOptimisticUpdate } from "@/hooks/use-optimistic-update";
 import { usePaginatedList } from "@/hooks/use-paginated-list";
@@ -104,6 +104,10 @@ export default function UpstreamPage() {
   const [oauthForm, setOauthForm] = useState<OAuthAuthorizeForm>(emptyOAuthAuthorizeForm);
   const [oauthAuthorizeURL, setOauthAuthorizeURL] = useState<string | null>(null);
   const [oauthBusy, setOauthBusy] = useState(false);
+  // 每次发起授权自增；旧流程的响应回来时据此丢弃，避免把上一个 provider 的
+  // state 写进当前表单（provider 与 state 错配会让兑换必然失败）。
+  const oauthFlowRef = useRef(0);
+  const authWindowRef = useRef<Window | null>(null);
   const [reauthTarget, setReauthTarget] = useState<UpstreamEndpointItem | null>(null);
   // 编辑中的端点认证类型：OAuth 端点的连接字段是服务端固定值，保存时仅提交 name
   const [editingEndpointAuthType, setEditingEndpointAuthType] = useState<EndpointAuthType | null>(
@@ -393,7 +397,17 @@ export default function UpstreamPage() {
     }
   };
 
+  /** 关闭上一次授权打开的标签页（若有） */
+  const closeAuthWindow = () => {
+    authWindowRef.current?.close();
+    authWindowRef.current = null;
+  };
+
   const resetOAuthFlow = () => {
+    // 作废在途请求并关掉可能已打开的授权页，避免关掉弹窗后后台仍在写 state / 导航
+    oauthFlowRef.current += 1;
+    closeAuthWindow();
+    setOauthBusy(false);
     setOauthMode(null);
     setOauthForm(emptyOAuthAuthorizeForm);
     setOauthAuthorizeURL(null);
@@ -402,23 +416,35 @@ export default function UpstreamPage() {
 
   /** 发起授权：取链接、新窗口打开、记录 state（flow 由服务端保存） */
   const startOAuthAuthorize = async (provider: "anthropic" | "openai") => {
+    const flow = ++oauthFlowRef.current;
+    closeAuthWindow();
     setOauthBusy(true);
     // 弹窗必须在用户手势内同步打开：await 之后 window.open 会被浏览器拦截。
     // 先开空白页再导航；noopener 会让 open 返回 null，所以改为事后清 opener。
     const authWindow = window.open("about:blank", "_blank");
+    authWindowRef.current = authWindow;
     if (authWindow) authWindow.opener = null;
     try {
       const rsp = await api.authorizeOAuthEndpoint(provider);
+      // 期间切换了 provider / 关闭了弹窗：丢弃本次结果，避免 state 与 provider 错配
+      if (flow !== oauthFlowRef.current) {
+        authWindow?.close();
+        return;
+      }
       setOauthAuthorizeURL(rsp.authorizeURL);
-      setOauthForm((f) => ({ ...f, state: rsp.state, code: "" }));
+      setOauthForm((f) => ({ ...f, provider, state: rsp.state, code: "" }));
       if (authWindow) {
         authWindow.location.href = rsp.authorizeURL;
       }
     } catch (err) {
+      if (flow !== oauthFlowRef.current) {
+        authWindow?.close();
+        return;
+      }
       authWindow?.close();
       showErrorToast(err, { title: t("oauth.authorize_error") });
     } finally {
-      setOauthBusy(false);
+      if (flow === oauthFlowRef.current) setOauthBusy(false);
     }
   };
 

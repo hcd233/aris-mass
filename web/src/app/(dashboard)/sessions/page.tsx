@@ -200,10 +200,15 @@ export default function SessionsPage() {
   }, [queryParams]);
   /* eslint-enable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
 
-  const refresh = (page: number, pageSize?: number) =>
-    fetchSessions({ page, pageSize: pageSize ?? pageInfo.pageSize, ...currentQuery() });
+  const refresh = (page: number, pageSize?: number) => {
+    // 翻页/改页大小后清空选择：跨页残留会让「删除 N 条」带上不可见的行
+    setSelected(new Set());
+    return fetchSessions({ page, pageSize: pageSize ?? pageInfo.pageSize, ...currentQuery() });
+  };
 
   const handleSort = (field: string) => {
+    // 排序会重置到第 1 页，旧选择同样不再可见
+    setSelected(new Set());
     const newSort: { field: string; dir: SortDir } =
       sort.field === field
         ? { field, dir: sort.dir === "asc" ? "desc" : "asc" }

@@ -221,3 +221,67 @@ func TestLatestReadsTagFromRedirect(t *testing.T) {
 		t.Fatalf("Latest() = %q, want v9.9.9", latest)
 	}
 }
+
+// zeroReader 生成无限零字节：用于构造解包后超大、但 gzip 后极小的归档。
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) {
+	clear(p)
+	return len(p), nil
+}
+
+// oversizedTarGz 构造一个成员名正确、但解包体积超过上限的归档。
+// gzip 对全零压缩比极高，归档本身远小于下载上限，能穿过 downloadAsset 的检查。
+func oversizedTarGz(t *testing.T) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	gzipWriter := gzip.NewWriter(&buffer)
+	tarWriter := tar.NewWriter(gzipWriter)
+	size := int64(constant.ArisClientUpdateMaxArchiveBytes) + 1
+	if err := tarWriter.WriteHeader(&tar.Header{
+		Name: constant.ArisClientBinaryFileName,
+		Mode: constant.ArisClientUpdateBinaryMode,
+		Size: size,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.CopyN(tarWriter, zeroReader{}, size); err != nil {
+		t.Fatal(err)
+	}
+	if err := tarWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if int64(buffer.Len()) >= constant.ArisClientUpdateMaxArchiveBytes {
+		t.Fatalf("fixture archive = %d bytes, want < %d", buffer.Len(), constant.ArisClientUpdateMaxArchiveBytes)
+	}
+	return buffer.Bytes()
+}
+
+// TestRunRejectsOversizedBinaryMember 解包成员的体积上限必须显式拒绝，
+// 不能让 LimitReader 静默截断后安装一个残缺二进制。
+func TestRunRejectsOversizedBinaryMember(t *testing.T) {
+	t.Parallel()
+	archive := oversizedTarGz(t)
+	server, _ := newReleaseServer(t, "v9.9.9", archive, sha256Hex(t, archive))
+	target := writeTarget(t, "current-binary-content")
+
+	err := update.Run(t.Context(), update.Options{
+		Current:    "v0.1.0",
+		BaseURL:    server.URL,
+		BinaryPath: target,
+		Out:        io.Discard,
+	})
+	if err == nil {
+		t.Fatal("Run() error = nil, want oversized member rejection")
+	}
+	installed, readErr := os.ReadFile(target)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(installed) != "current-binary-content" {
+		t.Fatalf("binary changed to %q, want unchanged", installed)
+	}
+}

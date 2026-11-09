@@ -2,6 +2,7 @@
 package config
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -58,21 +59,58 @@ func NewStore(paths Paths) Store {
 	return &store{paths: paths}
 }
 
-// Load 读取配置；新路径不存在时回退读取旧版 trace 目录，避免升级后要求重新 init。
+// Load 读取配置；新路径不存在、为空或损坏时回退读取旧版 trace 目录，避免升级后要求重新 init。
 func (s *store) Load(ctx context.Context) (Config, error) {
 	if err := ctx.Err(); err != nil {
 		return Config{}, err
 	}
-	data, err := os.ReadFile(s.paths.ConfigFile())
-	if errors.Is(err, os.ErrNotExist) {
-		data, err = os.ReadFile(s.paths.legacyConfigFile())
+
+	primary, primaryErr := os.ReadFile(s.paths.ConfigFile())
+	if primaryErr == nil && len(bytes.TrimSpace(primary)) > 0 {
+		config, err := decodeConfig(primary)
+		if err == nil {
+			return config, nil
+		}
+		// 新文件损坏（例如写到一半）：优先用 legacy 恢复；legacy 不可用时保留原始解码错误
+		legacy, legacyErr := s.loadLegacy()
+		if legacyErr == nil && legacy != nil {
+			return *legacy, nil
+		}
+		return Config{}, err
 	}
+	if primaryErr != nil && !errors.Is(primaryErr, os.ErrNotExist) {
+		return Config{}, ierr.Wrap(ierr.ErrInternal, primaryErr, "read aris client config")
+	}
+
+	// 新文件缺失或为空：回退 legacy
+	legacy, err := s.loadLegacy()
+	if err != nil {
+		return Config{}, err
+	}
+	if legacy != nil {
+		return *legacy, nil
+	}
+	return Config{}, nil
+}
+
+// loadLegacy 读取旧版 ~/.aris/trace/config.json；不存在返回 (nil, nil)。
+func (s *store) loadLegacy() (*Config, error) {
+	data, err := os.ReadFile(s.paths.legacyConfigFile())
 	if errors.Is(err, os.ErrNotExist) {
-		return Config{}, nil
+		return nil, nil
 	}
 	if err != nil {
-		return Config{}, ierr.Wrap(ierr.ErrInternal, err, "read aris client config")
+		return nil, ierr.Wrap(ierr.ErrInternal, err, "read aris client legacy config")
 	}
+	config, err := decodeConfig(data)
+	if err != nil {
+		return nil, err
+	}
+	return &config, nil
+}
+
+// decodeConfig 反序列化配置并统一错误类型。
+func decodeConfig(data []byte) (Config, error) {
 	var config Config
 	if err := sonic.Unmarshal(data, &config); err != nil {
 		return Config{}, ierr.Wrap(ierr.ErrDTOUnmarshal, err, "decode aris client config")

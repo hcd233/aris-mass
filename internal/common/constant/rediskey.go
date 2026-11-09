@@ -1,8 +1,15 @@
 package constant
 
+import "time"
+
 const (
 	LockKeyTemplateMiddleware = "%s:%s:%v"
 	JWTUserCacheKeyTemplate   = "jwt:user:%d"
+	// JWTUserCacheMaxTTL 用户权限信息缓存上限。
+	//
+	// 权限变更走命令层主动失效；但直接改库（admin 提升/降级）没有失效入口，
+	// 缓存必须在有限时间内自然过期，否则最长一个 access token 周期都按旧权限放行。
+	JWTUserCacheMaxTTL = 5 * time.Minute
 	// APIKeyAuthKeyTemplate API Key 鉴权缓存（%s = 密钥 SHA-256 十六进制摘要）：
 	// 用摘要而非明文做 key，避免 keyspace / 监控面板泄露可用密钥。
 	APIKeyAuthKeyTemplate    = "auth:apikey:%s"

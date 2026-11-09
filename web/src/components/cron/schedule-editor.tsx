@@ -127,7 +127,7 @@ interface ScheduleEditorDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   job: CronJobItem | null;
-  onSave: (spec: string) => Promise<void>;
+  onSave: (spec: string) => Promise<boolean>;
 }
 
 export function ScheduleEditorDialog({
@@ -191,8 +191,9 @@ export function ScheduleEditorDialog({
     if (!canSave || !specChanged) return;
     setSaving(true);
     try {
-      await onSave(currentSpec);
-      onOpenChange(false);
+      // 保存失败时保持弹窗打开，由调用方负责提示（返回 false 表示失败）
+      const saved = await onSave(currentSpec);
+      if (saved) onOpenChange(false);
     } finally {
       setSaving(false);
     }

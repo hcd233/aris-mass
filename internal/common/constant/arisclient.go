@@ -40,6 +40,9 @@ const (
 	ArisClientInitAPIKeyFailed          = "API key validation failed"
 	ArisClientInitRetryPrompt           = "Connection failed. Retry?"
 	ArisClientInitAPIKeyRetryPrompt     = "Retry API key?"
+	ArisClientInitMaxRetries            = 5
+	ArisClientInitHostRetryHint         = "Too many failed attempts. Re-run `aris init --host <url>` with a corrected address."
+	ArisClientInitAPIKeyRetryHint       = "Too many failed attempts. Re-run `aris init` or set ARIS_API_KEY with a valid key."
 	ArisClientInitDone                  = "Configuration completed"
 	ArisClientInitConfigFormat          = "Config: %s"
 	ArisClientJSONIndent                = "  "

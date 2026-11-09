@@ -306,7 +306,7 @@ func applyMergeInTx(tx *gorm.DB, sessionDAO *dao.SessionDAO, result MergeResult)
 //	@param db *gorm.DB
 //	@param session *dbmodel.Session 本轮已提交的新行
 //	@return int 软删的冗余会话数
-//	@return []uint 本轮被更新过的 Session ID（keeper 与合并容器），调用方据此失效详情缓存
+//	@return []uint 本轮被改写或软删的 Session ID（keeper、合并容器与被删冗余行），调用方据此失效详情缓存
 //	@return error
 //	@author centonhuang
 //	@update 2026-10-22 20:00:00
@@ -351,6 +351,9 @@ func DeduplicateSessionGroup(db *gorm.DB, session *dbmodel.Session) (deduped int
 			return mergeErr
 		}
 		touchedIDs = append(touchedIDs, mergedIDs...)
+		// 被软删的冗余行同样要失效详情缓存：它们可能已被用户打开过，
+		// 不失效会让删除后的会话在 SessionDetailCacheTTL 内继续可读。
+		touchedIDs = append(touchedIDs, result.RedundantIDs...)
 		return nil
 	})
 	if err != nil {

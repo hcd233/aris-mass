@@ -10,7 +10,9 @@ import (
 	"github.com/hcd233/aris-mass/internal/domain/llmproxy/vo"
 	"github.com/hcd233/aris-mass/internal/dto"
 	"github.com/hcd233/aris-mass/internal/infrastructure/metrics"
+	"github.com/hcd233/aris-mass/internal/logger"
 	"github.com/hcd233/aris-mass/internal/util"
+	"go.uber.org/zap"
 )
 
 // streamTimer 收敛流式转发路径中重复的「首 token 延迟 / 流持续时长」计时逻辑。
@@ -162,7 +164,13 @@ func recordModelCall(ctx context.Context, submitter TaskSubmitter, tokenMetrics 
 
 	PriceModelCall(task, out.model.Pricing())
 
-	_ = submitter.SubmitModelCallAuditTask(task) //nolint:errcheck // best-effort audit submission
+	// 审计是 best-effort：队列满/池已停会让任务丢失，至少留下一条可检索的告警日志
+	if submitErr := submitter.SubmitModelCallAuditTask(task); submitErr != nil {
+		logger.WithCtx(ctx).Warn("[LLMProxy] Model call audit dropped",
+			zap.Error(submitErr),
+			zap.String("endpoint", out.endpoint),
+			zap.Int("upstreamStatusCode", task.UpstreamStatusCode))
+	}
 }
 
 // PriceModelCall 为审计任务粘连计费结果：仅成功调用（HTTP 200）且模型已计价时，

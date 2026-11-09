@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { DASHBOARD_HOME_URL } from "@/lib/nav";
@@ -29,6 +29,9 @@ export default function LoginPage() {
   const [processing, setProcessing] = useState(false);
   const [demoAvailable, setDemoAvailable] = useState(false);
   const [pending, setPending] = useState<OAuth2Provider | null>(null);
+  // 回调 code 一次性：语言切换会让 processCallback 换引用并重跑 effect，
+  // 用 ref 保证同一次挂载只兑换一次。
+  const callbackStartedRef = useRef(false);
   const t = useT();
 
   const startOAuth = (provider: OAuth2Provider) => {
@@ -78,12 +81,12 @@ export default function LoginPage() {
     }
   }, [handleCallback, t]);
 
-  /* eslint-disable react-hooks/set-state-in-effect -- OAuth2 callback requires setting state from URL params on mount */
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get("code") && params.get("state")) {
-      processCallback();
-    }
+    if (!params.get("code") || !params.get("state")) return;
+    if (callbackStartedRef.current) return;
+    callbackStartedRef.current = true;
+    void processCallback();
   }, [processCallback]);
 
   useEffect(() => {
@@ -95,7 +98,6 @@ export default function LoginPage() {
       })
       .catch(() => setDemoAvailable(false));
   }, []);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
     if (accessToken && user) {

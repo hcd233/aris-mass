@@ -75,6 +75,12 @@ func backupAndWrite(path string, data []byte) error {
 		_ = tmp.Close() //nolint:errcheck // already in error path
 		return ierr.Wrap(ierr.ErrInternal, err, "write temporary file")
 	}
+	// rename 只保证目录项原子，不保证数据落盘；掉电后可能留下已 rename 的空文件。
+	// 与 config/update 的原子写保持同一持久性口径。
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close() //nolint:errcheck // already in error path
+		return ierr.Wrap(ierr.ErrInternal, err, "sync temporary file")
+	}
 	if err := tmp.Close(); err != nil {
 		return ierr.Wrap(ierr.ErrInternal, err, "close temporary file")
 	}

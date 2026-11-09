@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { DASHBOARD_HOME_URL } from "@/lib/nav";
 import { LOGIN_PATH, withBasePath } from "@/lib/routes";
@@ -14,6 +14,9 @@ export default function CallbackPage() {
   const { handleCallback } = useAuth();
   const t = useT();
   const [error, setError] = useState<string | null>(null);
+  // OAuth code 是一次性的：effect 依赖 t/handleCallback，语言切换或 StrictMode
+  // 重跑都会再次兑换并必然失败。用 ref 保证本次挂载只兑换一次。
+  const startedRef = useRef(false);
 
   const processCallback = useCallback(async () => {
     const params = parseOAuthCallbackParams(window.location.search);
@@ -51,11 +54,11 @@ export default function CallbackPage() {
     }
   }, [handleCallback, t]);
 
-  /* eslint-disable react-hooks/set-state-in-effect -- OAuth2 callback requires setting state from URL params on mount */
   useEffect(() => {
-    processCallback();
+    if (startedRef.current) return;
+    startedRef.current = true;
+    void processCallback();
   }, [processCallback]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   if (error) {
     return (

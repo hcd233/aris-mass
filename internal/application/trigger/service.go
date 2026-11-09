@@ -33,6 +33,8 @@ type TriggerService struct {
 
 	lastSeenVersion atomic.Int64
 	lastRebuildAt   atomic.Int64 // UnixNano；0 表示从未成功重建
+	// nextRebuildAt 重建失败后的退避截止时间（UnixNano）；0 表示允许立即重试
+	nextRebuildAt atomic.Int64
 }
 
 func NewTriggerService(repo domain.TriggerRepository, hitRecorder port.HitRecorder, cache *redis.Client) *TriggerService {
@@ -65,7 +67,19 @@ func (s *TriggerService) Rebuild(ctx context.Context) error {
 		return b.AggregateID(), b.Action()
 	})
 	s.lastRebuildAt.Store(time.Now().UnixNano())
+	s.nextRebuildAt.Store(0)
 	return nil
+}
+
+// rebuildAllowed 失败退避窗口内返回 false。
+// 版本轮询 2s 一次，DB 故障时无退避会持续打满查询。
+func (s *TriggerService) rebuildAllowed() bool {
+	return time.Now().UnixNano() >= s.nextRebuildAt.Load()
+}
+
+// deferRebuild 记录一次失败重建，退避到 TriggerRebuildBackoff 之后。
+func (s *TriggerService) deferRebuild() {
+	s.nextRebuildAt.Store(time.Now().Add(constant.TriggerRebuildBackoff).UnixNano())
 }
 
 // NotifyChanged 广播触发词变更：Publish 即时信号 + INCR 版本计数（best-effort，失败仅记日志）。
@@ -121,9 +135,12 @@ func (s *TriggerService) syncLoop(ctx context.Context) {
 			return
 		case <-t.C:
 			s.checkVersion(ctx)
-			// 低频兜底：距上次成功 Rebuild ≥ 5min 则无条件重建（失败不更新游标 → 下轮重试）
-			if time.Since(time.Unix(0, s.lastRebuildAt.Load())) >= constant.TriggerLowFreqRebuildInterval {
-				_ = s.Rebuild(ctx) //nolint:errcheck // 失败不更新 lastRebuildAt，由下轮 tick 重试
+			// 低频兜底：距上次成功 Rebuild ≥ 5min 则无条件重建（失败不更新游标 → 退避后重试）
+			lowFreqDue := time.Since(time.Unix(0, s.lastRebuildAt.Load())) >= constant.TriggerLowFreqRebuildInterval
+			if lowFreqDue && s.rebuildAllowed() {
+				if err := s.Rebuild(ctx); err != nil {
+					s.deferRebuild()
+				}
 			}
 		}
 	}
@@ -135,8 +152,13 @@ func (s *TriggerService) checkVersion(ctx context.Context) {
 		return // 读不到版本号由低频兜底收敛；Redis 故障时保持现状
 	}
 	if v != s.lastSeenVersion.Load() {
+		if !s.rebuildAllowed() {
+			return // 退避窗口内跳过，下轮 tick 再试
+		}
 		if err := s.Rebuild(ctx); err == nil {
 			s.lastSeenVersion.Store(v)
+		} else {
+			s.deferRebuild()
 		}
 	}
 }
