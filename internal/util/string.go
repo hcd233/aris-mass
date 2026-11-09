@@ -2,7 +2,6 @@ package util
 
 import (
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"strings"
@@ -14,18 +13,6 @@ import (
 	"github.com/hcd233/aris-mass/internal/common/enum"
 	"github.com/hcd233/aris-mass/internal/common/vo"
 )
-
-// ToDataURL 将文件转换为 data URL
-//
-//	@param contentType 文件类型
-//	@param bytes
-//	@return string
-//	@author centonhuang
-//	@update 2025-11-13 17:49:49
-func ToDataURL(contentType string, bytes []byte) string {
-	base64Data := base64.StdEncoding.EncodeToString(bytes)
-	return fmt.Sprintf(constant.DataURLTemplate, contentType, base64Data)
-}
 
 // TruncateFieldValue 截断过长的字符串值，保留前 maxLen 字节并附加截断信息
 //

@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/bytedance/sonic"
-	"github.com/google/uuid"
 	"github.com/hcd233/aris-mass/internal/common/constant"
 	"github.com/hcd233/aris-mass/internal/common/enum"
 	"github.com/hcd233/aris-mass/internal/common/ierr"
@@ -527,9 +526,4 @@ func convertAnthropicToolChoiceToOpenAI(tc *dto.AnthropicToolChoice) *dto.OpenAI
 		}
 	}
 	return nil
-}
-
-// GenerateAnthropicMessageID 生成 Anthropic 风格的消息 ID
-func GenerateAnthropicMessageID() string {
-	return fmt.Sprintf(constant.AnthropicMessageIDTemplate, uuid.New().String())
 }

@@ -118,14 +118,12 @@ const (
 
 var (
 	MessageRepoFieldsChecksum = []string{FieldID, FieldCheckSum}
-	MessageRepoFieldsFull     = []string{FieldID, FieldModelID, FieldMessage, FieldCheckSum, FieldCreatedAt}
 	// MessageRawFields 按原始字符串读取 message 行的列（绕开 GORM 字段 serializer）
 	MessageRawFields         = []string{FieldID, FieldModelID, FieldMessage, FieldCheckSum}
 	MessageRepoFieldsDetail  = []string{FieldID, FieldModelID, FieldMessage, FieldCreatedAt}
 	MessageRepoFieldsContent = []string{FieldID, FieldMessage}
 
 	ToolRepoFieldsChecksum = []string{FieldID, FieldCheckSum}
-	ToolRepoFieldsFull     = []string{FieldID, FieldTool, FieldCheckSum, FieldCreatedAt}
 	ToolRepoFieldsDetail   = []string{FieldID, FieldTool, FieldCreatedAt}
 
 	UserRepoFieldsFull  = []string{FieldID, FieldName, FieldEmail, FieldAvatar, FieldPermission, FieldLastLogin, FieldCreatedAt, FieldGithubBindID, FieldGoogleBindID}
