@@ -48,6 +48,7 @@ export interface ShareDialogProps {
   existingShareID?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onShareCreated?: (shareID: string) => void;
 }
 
 /**
@@ -67,7 +68,13 @@ export function buildShareURL(shareID: string): string {
 
 type ExpireOption = "1d" | "7d" | "30d" | "never" | "custom";
 
-export function ShareDialog({ sessionId, existingShareID, open, onOpenChange }: ShareDialogProps) {
+export function ShareDialog({
+  sessionId,
+  existingShareID,
+  open,
+  onOpenChange,
+  onShareCreated,
+}: ShareDialogProps) {
   const [creating, setCreating] = useState(false);
   const [shareURL, setShareURL] = useState<string | null>(
     existingShareID ? buildShareURL(existingShareID) : null,
@@ -116,12 +123,13 @@ export function ShareDialog({ sessionId, existingShareID, open, onOpenChange }: 
       }
       setShareURL(buildShareURL(rsp.shareId));
       setExpiresAt(rsp.expiresAt ?? null);
+      onShareCreated?.(rsp.shareId);
     } catch (err) {
       showErrorToast(err, { title: t("share_dialog.create_failed") });
     } finally {
       setCreating(false);
     }
-  }, [sessionId, expireOption, customDate, t]);
+  }, [sessionId, expireOption, customDate, t, onShareCreated]);
 
   const handleCopy = useCallback(async () => {
     if (!shareURL) return;

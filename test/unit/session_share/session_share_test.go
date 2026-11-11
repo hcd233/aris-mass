@@ -145,6 +145,20 @@ func (m *mockShareCache) GetSessionShareID(_ context.Context, sessionID uint) (s
 	return "mock-share-id", nil
 }
 
+func (m *mockShareCache) GetSessionShareIDs(ctx context.Context, sessionIDs []uint) (map[uint]string, error) {
+	shareIDs := make(map[uint]string, len(sessionIDs))
+	for _, sessionID := range sessionIDs {
+		shareID, err := m.GetSessionShareID(ctx, sessionID)
+		if err != nil {
+			return nil, err
+		}
+		if shareID != "" {
+			shareIDs[sessionID] = shareID
+		}
+	}
+	return shareIDs, nil
+}
+
 type mockGetSessionByUserHandler struct {
 	view map[uint]*sessionport.SessionDetailView
 	err  error

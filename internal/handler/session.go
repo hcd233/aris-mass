@@ -170,6 +170,13 @@ func (h *sessionHandler) HandleListSessionsByUser(ctx context.Context, req *dto.
 		return nil, apiutil.NewHumaBizError(ctx, err, ierr.ErrInternal.BizError())
 	}
 
+	sessionIDs := lo.Map(views, func(v *port.SessionSummaryView, _ int) uint { return v.ID })
+	shareIDs, shareErr := h.shareCache.GetSessionShareIDs(ctx, sessionIDs)
+	if shareErr != nil {
+		logger.WithCtx(ctx).Warn("[SessionHandler] Batch check session shared status failed", zap.Error(shareErr))
+		shareIDs = map[uint]string{}
+	}
+
 	rsp.Sessions = lo.Map(views, func(v *port.SessionSummaryView, _ int) *dto.SessionSummary {
 		return &dto.SessionSummary{
 			ID:           v.ID,
@@ -181,6 +188,7 @@ func (h *sessionHandler) HandleListSessionsByUser(ctx context.Context, req *dto.
 			Score:        v.Score,
 			ModelIDs:     v.ModelIDs,
 			AgentHarness: v.AgentHarness,
+			ShareID:      shareIDs[v.ID],
 		}
 	})
 	rsp.PageInfo = pageInfo

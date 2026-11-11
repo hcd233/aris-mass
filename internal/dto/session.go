@@ -24,6 +24,7 @@ type SessionSummary struct {
 	ModelIDs     []string          `json:"modelIds,omitempty" doc:"回答模型ID列表"`
 	Metadata     map[string]string `json:"metadata,omitempty" doc:"请求元数据"`
 	AgentHarness string            `json:"agentHarness" doc:"来源 Agent Harness（未识别为 Other）"`
+	ShareID      string            `json:"shareID" doc:"分享ID（已分享时非空）"`
 }
 
 // SessionDetail Session详情

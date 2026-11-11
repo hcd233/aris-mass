@@ -102,13 +102,14 @@ export default function SessionsPage() {
     existingShareID?: string;
   } | null>(null);
 
-  const openShare = async (s: SessionSummary) => {
-    try {
-      const rsp = await api.getSessionMetadata(s.id);
-      setShareSession({ sessionId: s.id, existingShareID: rsp.session?.shareID });
-    } catch (err) {
-      showErrorToast(err, { title: t("share_dialog.create_failed") });
-    }
+  const openShare = (s: SessionSummary) => {
+    setShareSession({ sessionId: s.id, existingShareID: s.shareID });
+  };
+
+  const handleShareCreated = (shareID: string) => {
+    if (!shareSession) return;
+    const sessionId = shareSession.sessionId;
+    setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, shareID } : s)));
   };
 
   const fetchOptionsFor = useCallback(
@@ -466,13 +467,17 @@ export default function SessionsPage() {
                             />
                             {!isDemo() && (
                               <Button
-                                variant="ghost"
+                                variant={s.shareID ? "secondary" : "ghost"}
                                 size="icon-sm"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  void openShare(s);
+                                  openShare(s);
                                 }}
-                                aria-label={t("session_detail.share_aria")}
+                                aria-label={
+                                  s.shareID
+                                    ? t("session_detail.manage_share_aria")
+                                    : t("session_detail.share_aria")
+                                }
                               >
                                 <Share2 />
                               </Button>
@@ -672,13 +677,17 @@ export default function SessionsPage() {
                                 />
                                 {!isDemo() && (
                                   <Button
-                                    variant="ghost"
+                                    variant={s.shareID ? "secondary" : "ghost"}
                                     size="icon-sm"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      void openShare(s);
+                                      openShare(s);
                                     }}
-                                    aria-label={t("session_detail.share_aria")}
+                                    aria-label={
+                                      s.shareID
+                                        ? t("session_detail.manage_share_aria")
+                                        : t("session_detail.share_aria")
+                                    }
                                   >
                                     <Share2 />
                                   </Button>
@@ -717,6 +726,7 @@ export default function SessionsPage() {
           <ShareDialog
             sessionId={shareSession.sessionId}
             existingShareID={shareSession.existingShareID}
+            onShareCreated={handleShareCreated}
             open
             onOpenChange={(open) => {
               if (!open) setShareSession(null);

@@ -157,6 +157,7 @@ export interface SessionSummary {
   toolCount: number;
   metadata?: Record<string, string>;
   modelIds?: string[];
+  shareID?: string;
 }
 
 export interface UnifiedToolCall {

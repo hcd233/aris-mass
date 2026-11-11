@@ -36,6 +36,7 @@ type ShareCache interface {
 	DeleteShare(ctx context.Context, userID uint, shareID string) error
 	ListUserShares(ctx context.Context, userID uint, page, pageSize int) ([]*dto.ShareItem, *model.PageInfo, error)
 	GetSessionShareID(ctx context.Context, sessionID uint) (string, error)
+	GetSessionShareIDs(ctx context.Context, sessionIDs []uint) (map[uint]string, error)
 }
 
 type shareCache struct {
@@ -380,4 +381,33 @@ func (s *shareCache) GetSessionShareID(ctx context.Context, sessionID uint) (str
 		return "", nil
 	}
 	return members[0], nil
+}
+
+// GetSessionShareIDs 批量获取会话的活跃分享 ID，未分享的会话不会出现在返回 map 中。
+func (s *shareCache) GetSessionShareIDs(ctx context.Context, sessionIDs []uint) (map[uint]string, error) {
+	shareIDs := make(map[uint]string, len(sessionIDs))
+	if len(sessionIDs) == 0 {
+		return shareIDs, nil
+	}
+
+	pipe := s.cache.Pipeline()
+	commands := make([]*redis.StringSliceCmd, len(sessionIDs))
+	for i, sessionID := range sessionIDs {
+		key := fmt.Sprintf(constant.SessionSharesKeyTemplate, sessionID)
+		commands[i] = pipe.SMembers(ctx, key)
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		return nil, ierr.Wrap(ierr.ErrInternal, err, "failed to batch get session share IDs")
+	}
+
+	for i, command := range commands {
+		members, err := command.Result()
+		if err != nil {
+			return nil, ierr.Wrap(ierr.ErrInternal, err, "failed to read batch session share ID")
+		}
+		if len(members) > 0 {
+			shareIDs[sessionIDs[i]] = members[0]
+		}
+	}
+	return shareIDs, nil
 }
