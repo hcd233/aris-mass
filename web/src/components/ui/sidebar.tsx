@@ -465,7 +465,8 @@ const sidebarMenuButtonVariants = cva(
         // 侧栏主导航：激活背景由 NavIndicator（弹簧指示器）承担，
         // 只输出 data-active，不给激活项加背景色（动效契约见 web-frontend.md）。
         // 不加尺寸过渡：NavIndicator 在 layoutKey 变化时一次性测量行高。
-        nav: "hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground data-open:hover:bg-sidebar-accent/60 data-open:hover:text-sidebar-accent-foreground",
+        // 激活项不叠 hover 底色：否则指示器落位时会和悬停矩形叠成两层形状。
+        nav: "transition-colors duration-200 ease-out hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground data-active:hover:bg-transparent data-open:hover:bg-sidebar-accent/60 data-open:hover:text-sidebar-accent-foreground",
       },
       size: {
         default: "h-8 text-sm",
