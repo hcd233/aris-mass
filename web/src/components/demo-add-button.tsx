@@ -15,7 +15,7 @@ interface DemoAddButtonProps {
   sessionId: number;
   /** 该 session 是否已在 demo 白名单 */
   inDemo: boolean;
-  /** 添加/移除请求进行中 */
+  /** 该行的添加/移除请求进行中（只禁用这一行，不影响列表其它行） */
   pending: boolean;
   /** demo 登录开关（false 时不渲染按钮） */
   loginEnabled: boolean;

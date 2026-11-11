@@ -38,7 +38,7 @@ export default function SessionDetailClient({ sessionId }: { sessionId: number }
   const isMobile = useIsMobile();
   const t = useT();
   const { isDemo } = useAuth();
-  const { loginEnabled, pending, isInDemo, toggle } = useDemoWhitelist();
+  const { loginEnabled, isInDemo, isPending, toggle } = useDemoWhitelist();
   const [metadata, setMetadata] = useState<SessionMetadata | null>(null);
   const [loading, setLoading] = useState(true);
   const [toolsOpen, setToolsOpen] = useState(false);
@@ -374,7 +374,7 @@ export default function SessionDetailClient({ sessionId }: { sessionId: number }
       <DemoAddButton
         sessionId={metadata.id}
         inDemo={isInDemo(metadata.id)}
-        pending={pending}
+        pending={isPending(metadata.id)}
         loginEnabled={loginEnabled}
         onToggle={toggle}
         className="size-10"

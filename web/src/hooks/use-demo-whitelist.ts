@@ -10,9 +10,19 @@ import { useT } from "@/lib/i18n";
 /** 与后端 DemoSessionMaxPageSize 一致（internal/common/constant/string.go） */
 const DEMO_WHITELIST_PAGE_SIZE = 100;
 
+/** 返回把 id 加入 / 移出后的新集合；用函数式 setState 承接并发的多行切换 */
+function withMembership(ids: Set<number>, id: number, present: boolean) {
+  const next = new Set(ids);
+  if (present) next.add(id);
+  else next.delete(id);
+  return next;
+}
+
 /**
  * demo 白名单视角（admin 用）：loginEnabled + 全部白名单 ID 集合。
- * 挂载时拉取一次 getDemoConfig 与 listDemoSessions 全量；toggle(id) 单条添加/移除并同步本地集合。
+ * 挂载时拉取一次 getDemoConfig 与 listDemoSessions 全量；toggle(id) 单条添加/移除。
+ * toggle 为乐观更新：点击立即翻转本地集合，写请求在后台完成，失败回滚并提示；
+ * pending 按 session 维度记录，单行在途时只禁用该行按钮，不影响其它行。
  * 非 admin 一律 fail-closed：不拉取 admin-only 的 listDemoSessions，返回空集合与 no-op toggle。
  */
 export function useDemoWhitelist() {
@@ -20,8 +30,8 @@ export function useDemoWhitelist() {
   const { isAdmin } = useAuth();
   const [loginEnabled, setLoginEnabled] = useState(false);
   const [demoIds, setDemoIds] = useState<Set<number>>(new Set());
-  const [pending, setPending] = useState(false);
-  const pendingRef = useRef(false);
+  const [pendingIds, setPendingIds] = useState<Set<number>>(new Set());
+  const pendingRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
     if (!isAdmin()) return; // 非 admin 不调用 admin-only 白名单接口（避免 403 噪音请求）
@@ -56,36 +66,35 @@ export function useDemoWhitelist() {
 
   const isInDemo = useCallback((id: number) => demoIds.has(id), [demoIds]);
 
+  const isPending = useCallback((id: number) => pendingIds.has(id), [pendingIds]);
+
   const toggle = useCallback(
-    async (id: number) => {
+    (id: number) => {
       if (!isAdmin()) return; // 兜底：非 admin 不触发白名单写操作
-      if (pendingRef.current) return;
-      pendingRef.current = true;
-      setPending(true);
+      if (pendingRef.current.has(id)) return; // 同一行在途时忽略重复点击，避免来回翻转
       const wasInDemo = demoIds.has(id);
-      try {
-        if (wasInDemo) {
-          await api.removeDemoSessions([id]);
-          toast.success(t("demo.removed"));
-          setDemoIds((prev) => {
-            const next = new Set(prev);
-            next.delete(id);
-            return next;
-          });
-        } else {
-          await api.addDemoSessions({ sessionIds: [id] });
-          toast.success(t("demo.added"));
-          setDemoIds((prev) => new Set(prev).add(id));
-        }
-      } catch (err) {
-        showErrorToast(err);
-      } finally {
-        pendingRef.current = false;
-        setPending(false);
-      }
+
+      pendingRef.current.add(id);
+      setPendingIds((prev) => withMembership(prev, id, true));
+      // 乐观翻转：按钮状态与勾选立即响应，不等后端往返
+      setDemoIds((prev) => withMembership(prev, id, !wasInDemo));
+
+      const request = wasInDemo
+        ? api.removeDemoSessions([id])
+        : api.addDemoSessions({ sessionIds: [id] });
+      request
+        .then(() => toast.success(wasInDemo ? t("demo.removed") : t("demo.added")))
+        .catch((err) => {
+          setDemoIds((prev) => withMembership(prev, id, wasInDemo)); // 失败回滚到点击前的状态
+          showErrorToast(err);
+        })
+        .finally(() => {
+          pendingRef.current.delete(id);
+          setPendingIds((prev) => withMembership(prev, id, false));
+        });
     },
     [demoIds, t, isAdmin],
   );
 
-  return { loginEnabled, pending, isInDemo, toggle };
+  return { loginEnabled, isInDemo, isPending, toggle };
 }

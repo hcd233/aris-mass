@@ -83,7 +83,7 @@ export default function SessionsPage() {
   const router = useRouter();
   const isMobile = useIsMobile();
   const { isDemo } = useAuth();
-  const { loginEnabled, pending, isInDemo, toggle } = useDemoWhitelist();
+  const { loginEnabled, isInDemo, isPending, toggle } = useDemoWhitelist();
   const [timeRange, setTimeRange] = usePersistentState<TimeRangeKey>(
     "dashboard.sessions.timeRange",
     "30d",
@@ -462,7 +462,7 @@ export default function SessionsPage() {
                             <DemoAddButton
                               sessionId={s.id}
                               inDemo={isInDemo(s.id)}
-                              pending={pending}
+                              pending={isPending(s.id)}
                               loginEnabled={loginEnabled}
                               onToggle={toggle}
                             />
@@ -670,7 +670,7 @@ export default function SessionsPage() {
                                 <DemoAddButton
                                   sessionId={s.id}
                                   inDemo={isInDemo(s.id)}
-                                  pending={pending}
+                                  pending={isPending(s.id)}
                                   loginEnabled={loginEnabled}
                                   onToggle={toggle}
                                 />
