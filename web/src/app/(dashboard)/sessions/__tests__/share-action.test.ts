@@ -1,5 +1,9 @@
 import { readFileSync } from "node:fs";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { Share2 } from "lucide-react";
 import { describe, expect, it } from "vitest";
+import { SessionActionButton } from "../../../../components/session-action-button";
 
 const source = readFileSync(new URL("../page.tsx", import.meta.url), "utf8");
 const types = readFileSync(new URL("../../../../lib/types.ts", import.meta.url), "utf8");
@@ -23,11 +27,21 @@ describe("会话列表分享入口", () => {
     expect(source).not.toContain("api.getSessionMetadata(s.id)");
   });
 
-  it("已分享会话在桌面与移动端均使用高亮和管理文案", () => {
-    expect(source.match(/variant=\{s\.shareID \? "secondary" : "ghost"\}/g)).toHaveLength(2);
+  it("桌面和移动端回显分享角标，主图标与管理文案保持一致", () => {
+    expect(source.match(/active=\{!!s\.shareID\}/g)).toHaveLength(2);
     expect(
       source.match(/s\.shareID\s*\?\s*t\("session_detail\.manage_share_aria"\)/g),
     ).toHaveLength(2);
+    const render = (active: boolean) =>
+      renderToStaticMarkup(createElement(SessionActionButton, { active, icon: Share2 }));
+    const inactive = render(false);
+    const active = render(true);
+    const mainIcon = (html: string) => html.match(/<svg\b[^>]*>[\s\S]*?<\/svg>/)?.[0];
+    expect(mainIcon(active)).toBe(mainIcon(inactive));
+    expect(mainIcon(active)).toContain("lucide-share");
+    expect(active).toContain('data-slot="session-action-status"');
+    expect(active).toContain('data-active="true"');
+    expect(inactive).toContain('data-active="false"');
   });
 
   it("创建成功后立即更新对应列表行的分享状态", () => {

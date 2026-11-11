@@ -1,10 +1,9 @@
 "use client";
 
-import { BadgePlus, Check } from "lucide-react";
+import { GalleryVerticalEnd } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useT } from "@/lib/i18n";
-import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
+import { SessionActionButton } from "@/components/session-action-button";
 import {
   TooltipProvider,
   TooltipRoot,
@@ -46,26 +45,19 @@ export function DemoAddButton({
       <TooltipRoot>
         <TooltipTrigger
           render={
-            <Button
-              variant={inDemo ? "secondary" : "ghost"}
-              size="icon-sm"
+            <SessionActionButton
+              icon={GalleryVerticalEnd}
+              active={inDemo}
               disabled={pending}
               onClick={(e) => {
                 e.stopPropagation();
                 onToggle(sessionId);
               }}
-              className={cn(
-                inDemo ? "text-primary" : "text-foreground/70 hover:text-foreground",
-                className,
-              )}
+              className={className}
+              iconClassName={iconClassName}
+              aria-pressed={inDemo}
               aria-label={inDemo ? t("demo.in_demo_tooltip") : t("demo.add_tooltip")}
-            >
-              {inDemo ? (
-                <Check className={cn("size-4", iconClassName)} />
-              ) : (
-                <BadgePlus className={cn("size-4", iconClassName)} />
-              )}
-            </Button>
+            />
           }
         />
         <TooltipContent side="top">

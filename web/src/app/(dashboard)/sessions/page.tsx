@@ -9,6 +9,7 @@ import { api } from "@/lib/api-client";
 import { showErrorToast } from "@/lib/api-error-handler";
 import type { SessionSummary } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { SessionActionButton } from "@/components/session-action-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -466,9 +467,9 @@ export default function SessionsPage() {
                               onToggle={toggle}
                             />
                             {!isDemo() && (
-                              <Button
-                                variant={s.shareID ? "secondary" : "ghost"}
-                                size="icon-sm"
+                              <SessionActionButton
+                                icon={Share2}
+                                active={!!s.shareID}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   openShare(s);
@@ -478,9 +479,7 @@ export default function SessionsPage() {
                                     ? t("session_detail.manage_share_aria")
                                     : t("session_detail.share_aria")
                                 }
-                              >
-                                <Share2 />
-                              </Button>
+                              />
                             )}
                             <DeleteIconButton
                               locked={isDemo()}
@@ -676,9 +675,9 @@ export default function SessionsPage() {
                                   onToggle={toggle}
                                 />
                                 {!isDemo() && (
-                                  <Button
-                                    variant={s.shareID ? "secondary" : "ghost"}
-                                    size="icon-sm"
+                                  <SessionActionButton
+                                    icon={Share2}
+                                    active={!!s.shareID}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       openShare(s);
@@ -688,9 +687,7 @@ export default function SessionsPage() {
                                         ? t("session_detail.manage_share_aria")
                                         : t("session_detail.share_aria")
                                     }
-                                  >
-                                    <Share2 />
-                                  </Button>
+                                  />
                                 )}
                                 <DeleteIconButton
                                   locked={isDemo()}

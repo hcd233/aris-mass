@@ -40,6 +40,7 @@ describe("motion grammar", () => {
     '[data-thumb="on"]',
     ".capsule-thumb",
     '[data-slot="state-swap"]',
+    '[data-slot="session-action-status"]',
   ])("两套世界都定义 %s", (hook) => {
     for (const css of worlds) expect(css).toContain(hook);
   });

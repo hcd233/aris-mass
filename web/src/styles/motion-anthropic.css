@@ -480,6 +480,32 @@
   }
 }
 
+[data-theme="anthropic"] [data-slot="session-action-status"] {
+  opacity: 0;
+  & path {
+    stroke-dasharray: 24;
+    stroke-dashoffset: -24;
+  }
+  &[data-active="true"] {
+    opacity: 1;
+    & path {
+      stroke-dashoffset: 0;
+    }
+  }
+  &[data-animate] {
+    transition: opacity 100ms ease-out;
+    & path {
+      transition: stroke-dashoffset 0s linear 100ms;
+    }
+    &[data-active="true"] {
+      transition-duration: 140ms;
+      & path {
+        transition: stroke-dashoffset 220ms var(--ease-ink) 35ms;
+      }
+    }
+  }
+}
+
 /* ---- Slider「刻刀」: the thumb is pressed into the track while dragging. ---- */
 [data-theme="anthropic"] [data-slot="slider-thumb"] {
   transition:

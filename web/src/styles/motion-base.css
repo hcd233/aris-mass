@@ -99,6 +99,17 @@ html[data-motion-tier="still"] .data-morph {
   animation-play-state: paused;
 }
 
+html[data-motion-tier="still"] [data-slot="session-action-status"],
+html[data-motion-tier="still"] [data-slot="session-action-status"] path {
+  transition: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="session-action-status"],
+  [data-slot="session-action-status"] path {
+    transition: none !important;
+  }
+}
+
 /* Pseudo-element overlays (card light, popover beam) need a positioned
  * host. Kept in the components layer so an explicit `absolute` / `fixed`
  * utility on the same element still wins. */

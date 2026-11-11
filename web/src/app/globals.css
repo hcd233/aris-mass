@@ -42,6 +42,7 @@
   --color-border: var(--border);
   --color-destructive: var(--destructive);
   --color-positive: var(--positive);
+  --color-confirmation: var(--confirmation);
   --color-primary-ink: var(--primary-ink);
   --color-warning: var(--warning);
   --color-negative: var(--negative);
@@ -100,6 +101,7 @@
   /* 状态色（dashboard 环比 / 健康度）：正向 = 鼠尾草青绿，警示 = 赭石，负向 = 赤陶。
    * 三者都会直接当文字色用，在白卡 / #f5f0eb 上均需 ≥4.5:1。 */
   --positive: #467060;
+  --confirmation: #467060;
   --warning: #8a6119;
   --negative: #b3564f;
   --border: #e8e0d8;
@@ -143,6 +145,7 @@
   --accent-foreground: #f5f0eb;
   --destructive: #d4756a;
   --positive: #7fb39f;
+  --confirmation: #7fb39f;
   --warning: #e0a95a;
   --negative: #d4756a;
   --border: #40382f;
@@ -237,6 +240,7 @@
   --destructive: #d4606a;
   /* 月面状态色：冰蓝 = 正向，月光奶油 = 警示，暗红 = 负向（不引入高饱和色） */
   --positive: #a8bdd8;
+  --confirmation: #7fb39f;
   --warning: #ffeed9;
   --negative: #e07a80;
   --border: rgb(255 255 255 / 0.09);
