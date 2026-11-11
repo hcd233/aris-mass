@@ -30,7 +30,8 @@ import {
   ItemMedia,
   ItemTitle,
 } from "@/components/ui/item";
-import { MessageSquare, ArrowUp, ArrowDown, Trash2, Lock } from "lucide-react";
+import { MessageSquare, ArrowUp, ArrowDown, Trash2, Lock, Share2 } from "lucide-react";
+import { ShareDialog } from "@/components/share/share-dialog";
 import { useI18n } from "@/lib/i18n";
 import { useAuth } from "@/lib/auth-context";
 import { PermissionGuard } from "@/components/permission-guard";
@@ -96,6 +97,19 @@ export default function SessionsPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [batchDeleting, setBatchDeleting] = useState(false);
   const [batchDeleteConfirmOpen, setBatchDeleteConfirmOpen] = useState(false);
+  const [shareSession, setShareSession] = useState<{
+    sessionId: number;
+    existingShareID?: string;
+  } | null>(null);
+
+  const openShare = async (s: SessionSummary) => {
+    try {
+      const rsp = await api.getSessionMetadata(s.id);
+      setShareSession({ sessionId: s.id, existingShareID: rsp.session?.shareID });
+    } catch (err) {
+      showErrorToast(err, { title: t("share_dialog.create_failed") });
+    }
+  };
 
   const fetchOptionsFor = useCallback(
     (field: "score" | "model" | "messageCount" | "harness") => async () => {
@@ -450,6 +464,19 @@ export default function SessionsPage() {
                               loginEnabled={loginEnabled}
                               onToggle={toggle}
                             />
+                            {!isDemo() && (
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void openShare(s);
+                                }}
+                                aria-label={t("session_detail.share_aria")}
+                              >
+                                <Share2 />
+                              </Button>
+                            )}
                             <DeleteIconButton
                               locked={isDemo()}
                               disabled={deleteConfirm.loading && deleteConfirm.target?.id === s.id}
@@ -537,7 +564,7 @@ export default function SessionsPage() {
                           {t("sessions.harness")}
                         </TableHead>
                         <TableHead className="w-[140px]">{t("sessions.models")}</TableHead>
-                        <TableHead className="w-[104px]">
+                        <TableHead className="w-[140px]">
                           {/* sr-only 只能包文字：直接写在 th 上会把它变成绝对定位，
                               该列宽度因此不计入 fixed 布局的声明总和，剩下一截空白既不归
                               主列也不归任何列（实测 902px 容器丢 53px） */}
@@ -634,7 +661,7 @@ export default function SessionsPage() {
                                 )}
                               </div>
                             </TableCell>
-                            <TableCell className="w-[104px]">
+                            <TableCell className="w-[140px]">
                               <div className="flex items-center justify-center gap-1">
                                 <DemoAddButton
                                   sessionId={s.id}
@@ -643,6 +670,19 @@ export default function SessionsPage() {
                                   loginEnabled={loginEnabled}
                                   onToggle={toggle}
                                 />
+                                {!isDemo() && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon-sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void openShare(s);
+                                    }}
+                                    aria-label={t("session_detail.share_aria")}
+                                  >
+                                    <Share2 />
+                                  </Button>
+                                )}
                                 <DeleteIconButton
                                   locked={isDemo()}
                                   disabled={
@@ -672,6 +712,17 @@ export default function SessionsPage() {
             )}
           </CardContent>
         </Card>
+
+        {shareSession && (
+          <ShareDialog
+            sessionId={shareSession.sessionId}
+            existingShareID={shareSession.existingShareID}
+            open
+            onOpenChange={(open) => {
+              if (!open) setShareSession(null);
+            }}
+          />
+        )}
 
         <DeleteConfirmDialog
           {...deleteConfirm.dialogProps}
