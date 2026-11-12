@@ -197,7 +197,9 @@ html[data-motion-tier="immersive"]:not([data-theme="moonshot"])
   animation-direction: reverse;
 }
 .portal-marquee:hover .portal-marquee-track,
-.portal-marquee:focus-within .portal-marquee-track {
+.portal-marquee:focus-within .portal-marquee-track,
+.portal-ecosystem-panel:hover .portal-marquee-track,
+.portal-ecosystem-panel:focus-within .portal-marquee-track {
   animation-play-state: paused;
 }
 html[data-motion-tier="still"] .portal-marquee {
@@ -205,6 +207,9 @@ html[data-motion-tier="still"] .portal-marquee {
 }
 html[data-motion-tier="still"] .portal-marquee-track {
   animation: none;
+}
+html[data-motion-tier="still"] .portal-ecosystem :is(ul, li)[aria-hidden="true"] {
+  display: none;
 }
 
 /* ---------- Flow dashes ---------- */

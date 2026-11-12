@@ -184,14 +184,6 @@ export default function LoginPage() {
 
       {/* 右：门页 + 表单 */}
       <div className="relative flex items-center justify-center rounded-t-[1.75rem] border-t border-border bg-card px-6 pb-12 pt-10 sm:px-10 lg:rounded-l-[2rem] lg:rounded-tr-none lg:border-l lg:border-t-0 lg:px-10 lg:py-16 lg:shadow-[-28px_0_60px_-42px_color-mix(in_oklab,var(--foreground)_50%,transparent)] xl:px-14 moonshot:lg:border-white/[0.1] moonshot:lg:shadow-[inset_1px_0_0_rgb(255_255_255/0.08)]">
-        {/* 门槛销钉 */}
-        <span
-          aria-hidden="true"
-          className="absolute left-0 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 lg:block"
-        >
-          <span className="block size-[7px] rounded-full bg-primary ring-[5px] ring-background" />
-        </span>
-
         <div className="w-full max-w-[360px]">
           <div className="login-at login-at-2">
             <h2 className="font-display text-4xl font-semibold leading-[1.1] tracking-[-0.02em] text-foreground">

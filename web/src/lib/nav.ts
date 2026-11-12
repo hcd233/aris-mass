@@ -157,8 +157,8 @@ export interface ResolvedNavGroup extends Omit<NavGroup, "items"> {
 
 /**
  * 按当前身份裁剪导航：
- * - demo：全部显示，未开放的模块置灰锁定（没有 demoModule 的页面一律锁定）
- * - 其余：adminOnly 页面仅管理员可见
+ * - demo：全部显示，未开放的模块置灰锁定（没有 demoModule 的页面一律锁定），组内锁定项后置
+ * - 其余：adminOnly 页面仅管理员可见，保持原顺序
  * 过滤后没有条目的分组整组移除。
  */
 export function resolveNavGroups(groups: NavGroup[], access: NavAccess): ResolvedNavGroup[] {
@@ -172,7 +172,8 @@ export function resolveNavGroups(groups: NavGroup[], access: NavAccess): Resolve
           locked:
             access.isDemo &&
             !(item.demoModule !== undefined && access.isModuleOpen(item.demoModule)),
-        })),
+        }))
+        .sort((a, b) => Number(a.locked) - Number(b.locked)),
     }))
     .filter((group) => group.items.length > 0);
 }

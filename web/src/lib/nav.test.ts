@@ -100,6 +100,83 @@ describe("resolveNavGroups", () => {
     // 没有 demoModule 的页面对 demo 一律锁定
     expect(byHref["/apikeys/"]).toBe(true);
   });
+
+  it.each([false, true])("preserves the original order outside demo mode (admin=%s)", (isAdmin) => {
+    const groups = resolveNavGroups(NAV_GROUPS, access({ isAdmin }));
+    expect(groups.find((g) => g.key === "data")?.items.map((i) => i.href)).toEqual([
+      "/sessions/",
+      "/shares/",
+      "/audit/model/",
+      "/dataset/",
+    ]);
+    expect(groups.find((g) => g.key === "gateway")?.items.map((i) => i.href)).toEqual(
+      isAdmin
+        ? ["/apikeys/", "/upstream/", "/trigger/", "/harness/", "/playground/"]
+        : ["/apikeys/", "/upstream/", "/playground/"],
+    );
+    if (isAdmin) {
+      expect(groups.find((g) => g.key === "ops")?.items.map((i) => i.href)).toEqual([
+        "/cron/",
+        "/audit/cron/",
+        "/audit/demo/",
+        "/monitor/",
+      ]);
+    }
+  });
+
+  it("places locked demo items last within each group without mutating the shared configuration", () => {
+    const original = NAV_GROUPS.map((g) => g.items.map((i) => i.href));
+    const groups = resolveNavGroups(NAV_GROUPS, access({ isDemo: true, isModuleOpen: () => true }));
+    expect(groups.map((g) => g.key)).toEqual(["overview", "data", "gateway", "ops", "system"]);
+    expect(groups.map((g) => g.items.map((i) => i.href))).toEqual([
+      ["/dashboard/"],
+      ["/sessions/", "/audit/model/", "/shares/", "/dataset/"],
+      ["/upstream/", "/trigger/", "/apikeys/", "/harness/", "/playground/"],
+      ["/cron/", "/audit/cron/", "/monitor/", "/audit/demo/"],
+      ["/users/", "/demo/", "/profile/"],
+    ]);
+    expect(NAV_GROUPS.map((g) => g.items.map((i) => i.href))).toEqual(original);
+  });
+
+  it("uses the current demo module configuration while preserving order within each lock state", () => {
+    const groups = resolveNavGroups(
+      NAV_GROUPS,
+      access({
+        isDemo: true,
+        isModuleOpen: (m) => ["audit", "trigger", "monitor"].includes(m),
+      }),
+    );
+    expect(groups.find((g) => g.key === "data")?.items.map((i) => i.href)).toEqual([
+      "/audit/model/",
+      "/sessions/",
+      "/shares/",
+      "/dataset/",
+    ]);
+    expect(groups.find((g) => g.key === "gateway")?.items.map((i) => i.href)).toEqual([
+      "/trigger/",
+      "/apikeys/",
+      "/upstream/",
+      "/harness/",
+      "/playground/",
+    ]);
+    expect(groups.find((g) => g.key === "ops")?.items.map((i) => i.href)).toEqual([
+      "/monitor/",
+      "/cron/",
+      "/audit/cron/",
+      "/audit/demo/",
+    ]);
+  });
+
+  it("keeps the configured order when every demo item is locked", () => {
+    const groups = resolveNavGroups(NAV_GROUPS, access({ isDemo: true }));
+    expect(groups.find((g) => g.key === "data")?.items.map((i) => i.href)).toEqual([
+      "/sessions/",
+      "/shares/",
+      "/audit/model/",
+      "/dataset/",
+    ]);
+    expect(groups.flatMap((g) => g.items).every((i) => i.locked)).toBe(true);
+  });
 });
 
 describe("matchesNavQuery", () => {
