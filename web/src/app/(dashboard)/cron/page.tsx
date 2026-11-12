@@ -170,7 +170,7 @@ export default function CronPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-[8rem]">{t("cron.name")}</TableHead>
-                      <TableHead className="w-[4.5rem]">{t("cron.type")}</TableHead>
+                      <TableHead className="w-[8.5rem]">{t("cron.type")}</TableHead>
                       <TableHead className="w-[10.5rem]">{t("cron.spec")}</TableHead>
                       {/* 描述不声明宽度：fixed 布局只允许一列吃剩余空间，两列都留空
                           会把剩余宽度对半分，描述只剩 ~150px（英文句子只剩三个词） */}

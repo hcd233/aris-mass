@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { localeVariants } from "./locale-variants";
 
 /**
  * 源码契约：`<Table fit>` 的声明列宽必须放得下「最宽语言表头 + 排序图标 + 内边距」。
@@ -259,5 +260,21 @@ describe("Table fit 表头列宽预算", () => {
       .join("\n");
 
     expect(findings, `\n${report}\n`).toEqual([]);
+  });
+
+  it.each(["cron.core", "cron.functional"])("Cron 类型列完整容纳 %s 的最宽译文徽章", (key) => {
+    const source = readFileSync(join(SRC_DIR, "app/(dashboard)/cron/page.tsx"), "utf8");
+    const header = parseHeaders(source).find((h) => labelKeys(h.content).includes("cron.type"));
+    expect(header).toBeDefined();
+    const width = declaredWidthPx(header!.tag);
+    const labels = localeVariants(TRANSLATIONS.en[key]) ?? [TRANSLATIONS.en[key]];
+    const labelWidth = Math.max(
+      ...labels.map((text) =>
+        [...text].reduce((total, char) => total + (isCjk(char) ? CJK_EM : LATIN_EM) * 12, 0),
+      ),
+    );
+
+    // Badge 的 px-3 + 两侧边框，以及 TableCell 的 p-2；标签不带表头的 tracking。
+    expect(width).toBeGreaterThanOrEqual(labelWidth + 24 + 2 + 16);
   });
 });
