@@ -222,7 +222,7 @@ func (p *anthropicProxy) sendRequestOnce(ctx context.Context, ep vo.UpstreamEndp
 		zap.Any("upstreamRequestSummary", parseUpstreamRequestSummary(body)),
 	)
 
-	resp, err := httpclient.GetHTTPClient().Do(req)
+	resp, err := httpclient.GetEndpointHTTPClient(ep.AuthType).Do(req)
 	if err != nil {
 		return nil, &model.UpstreamConnectionError{Cause: err}
 	}

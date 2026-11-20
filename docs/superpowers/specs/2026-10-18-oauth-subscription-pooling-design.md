@@ -26,7 +26,6 @@
 
 ### 1.3 非目标（明确排除，二期或独立议题）
 
-- **不做账号级 HTTP 代理**（sub2api 有；aris 的 Transport 连环境变量代理都不生效，独立议题）。
 - **不做额度阈值调度联动**（用尽自动降级/跳过；首版靠 429 + 现有 fallback 兜底，额度仅展示）。
 - **不做完整客户端拟真**（Claude 的 billing header、工具名混淆、cache_control 归一等；首版为"最小必要集"，被上游拒绝时再增量补）。
 - **不做 Claude setup-token 之外的自动化授权**（Cookie/sessionKey 换 code 之类，不做）。
@@ -257,6 +256,26 @@ GetAccessToken(ctx, endpointID):
 - Claude：`GET https://api.anthropic.com/api/oauth/usage`，头 `Authorization: Bearer` + `anthropic-beta: oauth-2025-04-20`；响应 `five_hour{utilization,resets_at}`、`seven_day`、`seven_day_sonnet`。
 - Codex：`GET https://chatgpt.com/backend-api/wham/usage`，头 `Authorization: Bearer` + `chatgpt-account-id`；响应 `rate_limit.primary_window{used_percent,limit_window_seconds,reset_at}`、`secondary_window`。
 - 写 `quota_snapshot` + `quota_updated_at`；探测失败 fail-soft（写 last_error，不改变 status）。
+
+### 4.7 订阅代理出口
+
+设置 `OAUTH_SUBSCRIPTION_PROXY` 后重启服务。所有 Codex 和 Claude 订阅端点共用这一服务端出口，覆盖首次授权和重新授权的 code 兑换、按需及定时令牌刷新、手动及定时额度探测、模型请求和流式响应。浏览器直接访问官方授权页，API Key 端点沿用现有出口。
+
+Hysteria2 使用单行节点 JSON，端口以字符串填写。普通 Hysteria2 节点可省略 `obfs` 和 `obfsParam`。`allowInsecure` 默认 `0`，填写 `1` 只跳过**代理节点**证书校验，上游服务的 HTTPS 证书仍照常校验。
+
+```dotenv
+OAUTH_SUBSCRIPTION_PROXY={"type":"Hysteria2","host":"proxy.example.com","port":"8443","password":"<password>","peer":"proxy.example.com","obfs":"salamander","obfsParam":"<obfs-password>"}
+```
+
+VMess、VLESS、Trojan 和 Shadowsocks 使用单个 Xray outbound JSON 对象，支持 TCP（`tcp`、`raw`）和 WebSocket（`ws`、`websocket`）传输。以下是 VLESS TLS 示例。VMess 对象使用 `protocol: vmess`，在 `users` 内用 `security: auto` 指定加密。
+
+```dotenv
+OAUTH_SUBSCRIPTION_PROXY={"protocol":"vless","settings":{"vnext":[{"address":"proxy.example.com","port":443,"users":[{"id":"<uuid>","encryption":"none"}]}]},"streamSettings":{"network":"tcp","security":"tls","tlsSettings":{"serverName":"proxy.example.com"}}}
+```
+
+HTTP、HTTPS 和 SOCKS5 使用代理 URL，例如 `OAUTH_SUBSCRIPTION_PROXY=socks5h://proxy.example.com:1080`。
+
+代理配置留空时订阅请求直连。无效配置会阻止服务启动并报告配置错误。代理运行时不可用时，该次订阅请求返回上游连接错误，网关仍按现有规则尝试备用端点。
 
 ## 5. 接口设计（Web API，JWT + user 权限）
 

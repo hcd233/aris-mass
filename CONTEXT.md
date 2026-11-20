@@ -147,6 +147,9 @@ _Avoid_: usage snapshot, quota cache
 OAuth 端点的转发特化（transport 层 `oauth_upstream.go`，最小必要集）：Claude 侧删除透传 x-api-key（防 aris 密钥泄漏给上游）、覆盖 Authorization、**合并** anthropic-beta（不丢客户端 beta）、伪装官方 CLI UA，body 前置 Claude Code 身份块并补 metadata.user_id；Codex 侧补 chatgpt-account-id / originator / UA / accept，强制 `store=false`、`stream=true` 并清理上游不接受字段。access token 由 **OAuthTokenProvider** 注入（请求路径按需刷新：3 分钟提前量 + Redis 锁 + 双检），OAuth 端点的熔断/隔离键使用稳定身份 `oauth:{endpointID}`（token 轮换不重置熔断状态）。被上游拒绝时按设计文档 §4.3 差异清单增量补。
 _Avoid_: oauth mimic, upstream patch
 
+**SubscriptionProxy（订阅代理出口）**:
+由服务端 `OAUTH_SUBSCRIPTION_PROXY` 配置、供所有 Codex 和 Claude 订阅端点共用的网络出口。授权码兑换、令牌刷新、额度探测和模型请求均通过该出口。未配置时订阅请求直连。已配置的代理连接失败时，该次上游请求失败。
+
 **Playground（模型调试台）**:
 Web 端内置调试入口（`POST /api/web/v1/playground/chat`，JWT、权限 ≥ user，demo 天然拒绝）：复用 OpenAI Chat 契约走 LLM 转发全链路（别名解析、跨协议转换、Guard、触发词），调用须经 query `apiKeyID` 指定**本人名下**的 API Key：审计按该 Key 归属（与 `api_key_id` 口径的审计/成本视图一致），请求数与 token 两个令牌桶与 `/api/openai/v1` 共用该 Key 的配额；**仅落审计不落会话**（注入 `CtxKeySkipStore`，与 Trigger omit 共用同一存储分流机制）。前端 `/playground` 页把**模型别名与计费 Key 的选择放进输入区**（不设参数侧栏；无 Key 时引导创建），采样参数固定不暴露（temperature 0.7、max_tokens 64834、stream 恒为真），支持多轮消息编辑、SSE 流式渲染（助手消息带模型 icon 与模型名，并折叠展示上游思考内容 `reasoning_content`）与中途停止。
 _Avoid_: model tester, debug console

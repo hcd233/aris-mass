@@ -182,3 +182,26 @@ const OAuthQuotaProbeInterval = 30 * time.Minute
 
 // OAuthProbeTimeout 手动探测接口的服务端处理超时
 const OAuthProbeTimeout = 15 * time.Second
+
+const (
+	SubscriptionProxyHysteria2              = "hysteria2"
+	SubscriptionProxySalamander             = "salamander"
+	SubscriptionProxySalamanderMinKeyLength = 4
+	SubscriptionProxyLogDisabled            = "none"
+	SubscriptionProxyTCPPrefix              = "tcp:"
+	SubscriptionProxyUDP                    = "udp"
+	SubscriptionProxyUDPListenAddr          = ":0"
+	SubscriptionProxyJSONPrefix             = "{"
+	SubscriptionProxyHTTP                   = "http"
+	SubscriptionProxyHTTPS                  = "https"
+	SubscriptionProxySOCKS5                 = "socks5"
+	SubscriptionProxySOCKS5H                = "socks5h"
+	SubscriptionProxyVMess                  = "vmess"
+	SubscriptionProxyVLESS                  = "vless"
+	SubscriptionProxyTrojan                 = "trojan"
+	SubscriptionProxyShadowsocks            = "shadowsocks"
+	SubscriptionProxyRAW                    = "raw"
+	SubscriptionProxyTCP                    = "tcp"
+	SubscriptionProxyWS                     = "ws"
+	SubscriptionProxyWebSocket              = "websocket"
+)

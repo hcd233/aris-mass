@@ -10,12 +10,14 @@ import (
 	"net/http"
 
 	"github.com/hcd233/aris-mass/internal/common/constant"
+	"github.com/hcd233/aris-mass/internal/common/enum"
 	"github.com/hcd233/aris-mass/internal/config"
 	"github.com/hcd233/aris-mass/internal/logger"
 	"go.uber.org/zap"
 )
 
 var client *http.Client
+var subscriptionClient *http.Client
 
 // GetHTTPClient 获取通用 HTTP 客户端单例
 //
@@ -23,6 +25,14 @@ var client *http.Client
 //	@author centonhuang
 //	@update 2026-04-05 10:00:00
 func GetHTTPClient() *http.Client {
+	return client
+}
+
+// GetEndpointHTTPClient 按上游认证类型选择 HTTP 客户端。
+func GetEndpointHTTPClient(authType enum.EndpointAuthType) *http.Client {
+	if authType.IsOAuth() && subscriptionClient != nil {
+		return subscriptionClient
+	}
 	return client
 }
 
@@ -42,6 +52,7 @@ func GetHTTPClient() *http.Client {
 //	@author centonhuang
 //	@update 2026-04-05 10:00:00
 func InitHTTPClient() {
+	subscriptionClient = nil
 	client = &http.Client{
 		Timeout: config.HTTPClientTimeout,
 		Transport: &http.Transport{

@@ -1,6 +1,8 @@
 package modules
 
 import (
+	"context"
+
 	"github.com/gofiber/fiber/v3"
 	demoauditport "github.com/hcd233/aris-mass/internal/application/demoaccessaudit/port"
 	modelport "github.com/hcd233/aris-mass/internal/application/model/port"
@@ -100,8 +102,22 @@ func NewInflightTracker() *inflight.Tracker {
 	return inflight.NewTracker()
 }
 
-func InitHTTPClient() {
+func InitHTTPClient(lifecycle fx.Lifecycle) error {
 	httpclient.InitHTTPClient()
+	if config.OAuthSubscriptionProxy == "" {
+		return nil
+	}
+	// InfraModule 的 Invoke 先于 cron 装配，避免维护任务在代理就绪前直连。
+	stopProxy, err := httpclient.InitSubscriptionProxy(config.OAuthSubscriptionProxy)
+	if err != nil {
+		return err
+	}
+	lifecycle.Append(fx.Hook{
+		OnStop: func(context.Context) error {
+			return stopProxy()
+		},
+	})
+	return nil
 }
 
 func NewSSEGauge(registry *prometheus.Registry) *metrics.SSEGauge {
