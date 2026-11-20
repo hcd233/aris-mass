@@ -357,3 +357,30 @@ func TestPublicEndpoint_VisibilityAndReadOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestPatchEndpointWithoutVisibilityLeavesColumnUntouched(t *testing.T) {
+	f := newFixture(t)
+	token := f.tokenFor(t, f.admin.ID)
+	status, data := f.do(t, http.MethodPost, constant.WebAPIPrefix+"/endpoint", token,
+		`{"name":"before-patch","visibility":"public","apiKey":"sk-test","openaiBaseURL":"https://o.example.com","supportOpenAIChatCompletion":true}`)
+	requireBizCode(t, status, data, 0, "create endpoint")
+
+	var ep dbmodel.Endpoint
+	if err := f.db.Where("name = ?", "before-patch").First(&ep).Error; err != nil {
+		t.Fatalf("load endpoint: %v", err)
+	}
+	if err := f.db.Exec(`CREATE TRIGGER keep_endpoint_visibility BEFORE UPDATE OF visibility ON endpoints
+		BEGIN SELECT RAISE(ABORT, 'visibility column must be left untouched'); END`).Error; err != nil {
+		t.Fatalf("create visibility trigger: %v", err)
+	}
+
+	status, data = f.do(t, http.MethodPatch, fmt.Sprintf("%s/endpoint?id=%d", constant.WebAPIPrefix, ep.ID), token,
+		`{"name":"after-patch"}`)
+	requireBizCode(t, status, data, 0, "patch endpoint name")
+	if err := f.db.First(&ep, ep.ID).Error; err != nil {
+		t.Fatalf("reload endpoint: %v", err)
+	}
+	if ep.Name != "after-patch" || ep.Visibility != string(enum.EndpointVisibilityPublic) {
+		t.Fatalf("name = %q, visibility = %q, want after-patch and public", ep.Name, ep.Visibility)
+	}
+}

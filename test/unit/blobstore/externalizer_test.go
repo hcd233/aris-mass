@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"encoding/base64"
 	"math/rand/v2"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/hcd233/aris-mass/internal/common/enum"
+	"github.com/hcd233/aris-mass/internal/common/ierr"
 	"github.com/hcd233/aris-mass/internal/common/vo"
 	"github.com/hcd233/aris-mass/internal/infrastructure/blobstore"
 	"github.com/hcd233/aris-mass/internal/infrastructure/database/dao"
@@ -219,11 +222,58 @@ func TestExternalizeDBFailureKeepsBase64(t *testing.T) {
 	}
 }
 
+func TestAsyncExternalizeInsertFailureKeepsBase64(t *testing.T) {
+	t.Parallel()
+	db := openBlobDB(t)
+	store := newFakeStore()
+	ext := blobstore.NewExternalizer(db, blobstore.NewAsyncUploader(db, store, 1, 10))
+	t.Cleanup(ext.Stop)
+	if err := db.Callback().Create().Before("gorm:create").Register("fail_blob_insert", func(tx *gorm.DB) {
+		_ = tx.AddError(ierr.New(ierr.ErrDBCreate, "injected pending insert failure"))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	url := dataURI(smallPNG(t, 9))
+	out, stats := ext.Externalize(t.Context(), []*vo.UnifiedMessage{imageMsg(url)})
+	ext.Stop()
+	if out[0].Content.Parts[1].ImageURL != url || stats.Failed != 1 || store.totalPuts() != 0 {
+		t.Fatalf("part=%+v stats=%+v puts=%d", out[0].Content.Parts[1], stats, store.totalPuts())
+	}
+}
+
+func openAsyncBlobDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "blobs.sqlite")+"?_journal_mode=WAL"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&dbmodel.Blob{}); err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	return db
+}
+
+func TestExternalizeWithoutStoreCompressesPending(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, false)
+	raw := encodePNG(t, noiseRGBA(1200, 1200))
+	e.ext.Externalize(t.Context(), []*vo.UnifiedMessage{imageMsg(dataURI(raw))})
+	row := getBlob(t, e, raw)
+	if row.Status != enum.BlobStatusPending || len(row.Data) > 2<<20 || row.Size != int64(len(row.Data)) || row.OriginalSize != int64(len(raw)) {
+		t.Fatalf("status=%s stored=%d size=%d original=%d", row.Status, len(row.Data), row.Size, row.OriginalSize)
+	}
+}
+
 // TestAsyncExternalizeDoesNotWaitForUpload 异步模式：上传未完成时消息已替换为引用（原图 mime/size），
 // Stop 后图片完成上传
 func TestAsyncExternalizeDoesNotWaitForUpload(t *testing.T) {
 	t.Parallel()
-	db := openBlobDB(t)
+	db := openAsyncBlobDB(t)
 	store := newFakeStore()
 	store.gate, store.entered = make(chan struct{}), make(chan struct{}, 1)
 	ext := blobstore.NewExternalizer(db, blobstore.NewAsyncUploader(db, store, 1, 10))
@@ -235,8 +285,9 @@ func TestAsyncExternalizeDoesNotWaitForUpload(t *testing.T) {
 	if stats.Queued != 1 || part.ImageURL != vo.ImageRefOf(vo.SHA256Hex(raw)) || part.ImageMime != "image/png" || part.ImageSize != int64(len(raw)) {
 		t.Fatalf("stats=%+v part=%+v", stats, part)
 	}
-	if row, _ := dao.GetBlobDAO().GetBySHA256(db, vo.SHA256Hex(raw)); row != nil {
-		t.Fatalf("blob row written before upload finished: %+v", row)
+	pending, pendingErr := dao.GetBlobDAO().GetBySHA256(db, vo.SHA256Hex(raw))
+	if pendingErr != nil || pending == nil || pending.Status != enum.BlobStatusPending || !bytes.Equal(pending.Data, raw) {
+		t.Errorf("pending original must be durable before upload completes: row=%+v err=%v", pending, pendingErr)
 	}
 
 	close(store.gate)
@@ -272,7 +323,7 @@ func TestAsyncExternalizeAfterStopPersistsRaw(t *testing.T) {
 // TestAsyncExternalizeSameImageQueuedOnce 同一张图并发提交时只处理一次
 func TestAsyncExternalizeSameImageQueuedOnce(t *testing.T) {
 	t.Parallel()
-	db := openBlobDB(t)
+	db := openAsyncBlobDB(t)
 	store := newFakeStore()
 	store.gate, store.entered = make(chan struct{}), make(chan struct{}, 1)
 	ext := blobstore.NewExternalizer(db, blobstore.NewAsyncUploader(db, store, 2, 10))
@@ -283,7 +334,7 @@ func TestAsyncExternalizeSameImageQueuedOnce(t *testing.T) {
 	_, second := ext.Externalize(t.Context(), []*vo.UnifiedMessage{imageMsg(url)})
 	close(store.gate)
 	ext.Stop()
-	if first.Queued != 1 || second.Queued != 1 || store.putCalls != 1 {
+	if first.Queued != 1 || second.Reused != 1 || store.putCalls != 1 {
 		t.Fatalf("first=%+v second=%+v putCalls=%d", first, second, store.putCalls)
 	}
 }

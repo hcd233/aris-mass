@@ -446,7 +446,15 @@ var (
 
 	// ── Session export query constants ──
 	// 导出行：id, created_at, score, message_ids, tool_ids, model_ids
-	SessionExportSelect = "id, created_at, score, message_ids, tool_ids, model_ids"
+	SessionExportSelect              = "id, created_at, score, message_ids, tool_ids, model_ids"
+	SessionExportBoundsSelect        = "COUNT(*) AS total, COALESCE(MAX(id), 0) AS through_id"
+	SessionExportReferenceSizeFormat = "COALESCE(%s, 0) + COALESCE(%s, 0)"
+	SessionExportPageSelectFormat    = "id, CASE WHEN (%[1]s) > ? THEN NULL ELSE message_ids END AS message_ids, " +
+		"CASE WHEN (%[1]s) > ? THEN NULL ELSE tool_ids END AS tool_ids, (%[1]s) > ? AS over_budget"
+	SessionExportPostgresByteLengthFormat = "octet_length(CAST(%s AS text))"
+	SessionExportSQLiteByteLengthFormat   = "length(CAST(%s AS blob))"
+	SessionExportPayloadSizeSelectFormat  = "id, %s AS body_bytes"
+	DBDialectSQLite                       = "sqlite"
 
 	// sessionModelIDsArray model_ids 按 jsonb 数组读取；SQL NULL 或非数组一律视为空数组，
 	// 避免 jsonb_array_elements_text 对标量报错

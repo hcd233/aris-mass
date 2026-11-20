@@ -124,3 +124,28 @@ func TestDashboardCacheExpiresInSeconds(t *testing.T) {
 		t.Fatalf("expired entry must reload from db, got %d db queries", got)
 	}
 }
+
+func TestDashboardCacheSeparatesAdjacentWindows(t *testing.T) {
+	t.Parallel()
+
+	repo, _, _ := newDashboardRepo(t)
+	eventAt := rangeStart.Add(time.Hour)
+	boundary := eventAt.Add(10 * time.Second)
+	before, err := repo.QueryGroupUsage(t.Context(), nil, eventAt, boundary, enum.DashboardDimensionModel, "")
+	if err != nil {
+		t.Fatalf("query first window: %v", err)
+	}
+	if len(before) != 1 || before[0].Requests != 1 {
+		t.Fatalf("first window must contain the seeded call, got %+v", before)
+	}
+
+	after, err := repo.QueryGroupUsage(
+		t.Context(), nil, boundary, boundary.Add(10*time.Second), enum.DashboardDimensionModel, "",
+	)
+	if err != nil {
+		t.Fatalf("query second window: %v", err)
+	}
+	if len(after) != 0 {
+		t.Fatalf("second window starts after the seeded call, got %d groups", len(after))
+	}
+}

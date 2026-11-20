@@ -32,11 +32,14 @@ const (
 	BlobPutTimeout = 10 * time.Second
 	// BlobPresignTTL 预签名 GET 链接有效期
 	BlobPresignTTL = 10 * time.Minute
-	// BlobPoolMaxInflightBytes 上传池内存中排队与处理中的原图字节总量上限，超出时直接落 blobs 表
-	BlobPoolMaxInflightBytes = 64 << 20
-
 	// BlobRetryBatchSize 重试任务每批处理行数
 	BlobRetryBatchSize = 50
+	// BlobPurgeGrace 新建图片的清理保护期
+	BlobPurgeGrace = 1 * time.Hour
+	// BlobPurgeBatchSize 每批锁定并复查的图片行数
+	BlobPurgeBatchSize = 50
+	// BlobDeleteTimeout 单张图片对象的删除超时
+	BlobDeleteTimeout = 10 * time.Second
 	// BlobRetryMaxAttempts 上传尝试次数上限，达到后转 failed
 	BlobRetryMaxAttempts = 10
 	// BlobLastErrorMaxLen last_error 列截断长度（按字符计）
@@ -52,6 +55,8 @@ const (
 	BlobMigrateLikePattern = `%"image_url":"data:%`
 	// BlobAnyRefLikePattern 预过滤：含任意图片引用的 message
 	BlobAnyRefLikePattern = `%"image_url":"aris-blob:sha256:%`
+	// BlobSHA256LikePatternTemplate 匹配消息中任意位置的候选 SHA256。
+	BlobSHA256LikePatternTemplate = "%%%s%%"
 	// BlobRefLikePatternTemplate 预过滤：含指定图片引用的 message（参数为完整引用）
 	BlobRefLikePatternTemplate = `%%"image_url":"%s"%%`
 	// BlobRefCheckMaxRows 引用校验时最多解析的候选 message 行数

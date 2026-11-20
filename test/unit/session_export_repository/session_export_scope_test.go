@@ -17,6 +17,7 @@ package session_export_repository
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/hcd233/aris-mass/internal/domain/session"
@@ -56,7 +57,12 @@ func TestListSessionsForExport_OwnerScopeSemantics(t *testing.T) {
 	ctx := context.Background()
 
 	// 空（非 nil）OwnerIDs：用户名下无 Key，必须返回空（不得导出全平台会话）
-	rows, err := repo.ListSessionsForExport(ctx, session.ExportFilter{OwnerIDs: []uint{}})
+	empty := session.ExportFilter{OwnerIDs: []uint{}}
+	bounds, err := repo.GetSessionExportBounds(ctx, empty)
+	if err != nil || bounds.Total != 0 || bounds.ThroughID != 0 {
+		t.Fatalf("GetSessionExportBounds(empty) = %+v, err=%v", bounds, err)
+	}
+	rows, err := repo.ListSessionsForExport(ctx, empty, 0, 3)
 	if err != nil {
 		t.Fatalf("ListSessionsForExport(empty) err: %v", err)
 	}
@@ -65,7 +71,7 @@ func TestListSessionsForExport_OwnerScopeSemantics(t *testing.T) {
 	}
 
 	// 具体归属：只返回该 ID 名下的
-	rows, err = repo.ListSessionsForExport(ctx, session.ExportFilter{OwnerIDs: []uint{2}})
+	rows, err = repo.ListSessionsForExport(ctx, session.ExportFilter{OwnerIDs: []uint{2}}, 0, 3)
 	if err != nil {
 		t.Fatalf("ListSessionsForExport(id=2) err: %v", err)
 	}
@@ -74,7 +80,7 @@ func TestListSessionsForExport_OwnerScopeSemantics(t *testing.T) {
 	}
 
 	// nil：admin 全量
-	rows, err = repo.ListSessionsForExport(ctx, session.ExportFilter{})
+	rows, err = repo.ListSessionsForExport(ctx, session.ExportFilter{}, 0, 3)
 	if err != nil {
 		t.Fatalf("ListSessionsForExport(nil) err: %v", err)
 	}
@@ -91,22 +97,80 @@ func TestListSessionsForExport_OwnerScopeSemantics(t *testing.T) {
 func TestListSessionsForExport_SameKeyNameAcrossTenants(t *testing.T) {
 	t.Parallel()
 
-	db := newExportTestDB(t, []*dbmodel.Session{
+	seed := []*dbmodel.Session{
 		{APIKeyName: "shared-name", APIKeyID: 1, ModelIDs: []string{"tenant-a-model"}},
 		{APIKeyName: "shared-name", APIKeyID: 2, ModelIDs: []string{"tenant-b-model"}},
 		{APIKeyName: "", APIKeyID: 0, ModelIDs: []string{"orphan-model"}},
-	})
+	}
+	db := newExportTestDB(t, seed)
 	repo := repository.NewSessionReadRepository(db, nil)
 	ctx := context.Background()
 
-	rows, err := repo.ListSessionsForExport(ctx, session.ExportFilter{OwnerIDs: []uint{2}})
+	rows, err := repo.ListSessionsForExport(ctx, session.ExportFilter{OwnerIDs: []uint{2}}, 0, seed[2].ID)
 	if err != nil {
 		t.Fatalf("ListSessionsForExport(tenant-b) err: %v", err)
 	}
 	if len(rows) != 1 {
 		t.Fatalf("tenant B must export exactly its own 1 session, got %d rows", len(rows))
 	}
-	if len(rows[0].ModelIDs) != 1 || rows[0].ModelIDs[0] != "tenant-b-model" {
-		t.Errorf("tenant B exported foreign session, model_ids=%v", rows[0].ModelIDs)
+	if rows[0].ID != seed[1].ID {
+		t.Errorf("tenant B exported foreign session, id=%d", rows[0].ID)
+	}
+}
+
+func TestSessionExportPagesExcludeSessionsInsertedAfterBounds(t *testing.T) {
+	t.Parallel()
+
+	const matching = 53
+	seed := []*dbmodel.Session{{APIKeyID: 8}}
+	var expected []uint
+	for range matching {
+		seed = append(seed, &dbmodel.Session{APIKeyID: 7})
+	}
+	db := newExportTestDB(t, seed)
+	for _, row := range seed[1:] {
+		expected = append(expected, row.ID)
+	}
+	repo := repository.NewSessionReadRepository(db, nil)
+	ctx := context.Background()
+	filter := session.ExportFilter{OwnerIDs: []uint{7}}
+	bounds, err := repo.GetSessionExportBounds(ctx, filter)
+	if err != nil || bounds.Total != matching || bounds.ThroughID != expected[len(expected)-1] {
+		t.Fatalf("bounds=%+v err=%v", bounds, err)
+	}
+	if err := db.Create(&dbmodel.Session{APIKeyID: 7}).Error; err != nil {
+		t.Fatalf("insert after bounds: %v", err)
+	}
+
+	first, err := repo.ListSessionsForExport(ctx, filter, 0, bounds.ThroughID)
+	if err != nil || len(first) == 0 || len(first) >= matching {
+		t.Fatalf("expected a bounded first page, rows=%d err=%v", len(first), err)
+	}
+	second, err := repo.ListSessionsForExport(ctx, filter, first[len(first)-1].ID, bounds.ThroughID)
+	if err != nil {
+		t.Fatalf("second page: %v", err)
+	}
+	var actual []uint
+	for _, row := range append(first, second...) {
+		actual = append(actual, row.ID)
+	}
+	if !slices.Equal(actual, expected) {
+		t.Fatalf("ids=%v want=%v", actual, expected)
+	}
+}
+
+func TestSessionExportPageOmitsOversizedReferenceArrays(t *testing.T) {
+	t.Parallel()
+
+	seed := []*dbmodel.Session{{APIKeyID: 1, MessageIDs: make([]uint, 132_000), ToolIDs: []uint{7}}}
+	db := newExportTestDB(t, seed)
+	repo := repository.NewSessionReadRepository(db, nil)
+	page, err := repo.ListSessionsForExport(context.Background(), session.ExportFilter{}, 0, seed[0].ID)
+	if err != nil || len(page) != 1 {
+		t.Fatalf("page rows=%d err=%v", len(page), err)
+	}
+	got := page[0]
+	if !got.OverBudget || got.ID != seed[0].ID || len(got.MessageIDs)+len(got.ToolIDs) != 0 {
+		t.Fatalf("id=%d overBudget=%t messageIDs=%d toolIDs=%d", got.ID, got.OverBudget, len(got.MessageIDs), len(got.ToolIDs))
 	}
 }

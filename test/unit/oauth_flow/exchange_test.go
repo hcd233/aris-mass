@@ -117,6 +117,10 @@ func (s *stubEndpointRepoForOAuth) BatchFindByIDs(context.Context, []uint) (map[
 func (s *stubEndpointRepoForOAuth) Create(context.Context, *aggregate.Endpoint, uint) (uint, error) {
 	return 0, nil
 }
+func (s *stubEndpointRepoForOAuth) Patch(context.Context, uint, *uint, bool, func(*aggregate.Endpoint) error) error {
+	return nil
+}
+
 func (s *stubEndpointRepoForOAuth) Update(context.Context, *aggregate.Endpoint) error { return nil }
 func (s *stubEndpointRepoForOAuth) Delete(context.Context, uint, *uint) error         { return nil }
 func (s *stubEndpointRepoForOAuth) DeleteCascade(context.Context, uint, *uint) error  { return nil }

@@ -302,8 +302,17 @@ const (
 	ShareGPTImagePlaceholder = "<image>"
 	// DatasetPreviewImageTemplate 格式预览中省略图片内容的占位（mime, KB）
 	DatasetPreviewImageTemplate = "data:%s;base64,<omitted %d KB>"
-	// DatasetExportBatchSessions 流式导出每批读取的会话数
-	DatasetExportBatchSessions = 50
+	// DatasetExportPageSessions 每页会话引用数。实际消息与工具内容逐会话读取。
+	DatasetExportPageSessions = 50
+	// DatasetExportReferenceMaxBytes 单个会话的消息与工具 ID 数组总字节上限。
+	DatasetExportReferenceMaxBytes = 256 << 10
+	DatasetExportMaxReferences     = 4096
+	// DatasetExportPayloadMaxBytes 单个会话的原始消息与工具 JSON 总字节上限，重复引用逐次计入。
+	DatasetExportPayloadMaxBytes = 32 << 20
+	// DatasetExportLineMaxBytes 单个会话的成品 NDJSON 行上限（含内联图片和 JSON 转义）。
+	DatasetExportLineMaxBytes = 64 << 20
+	// DatasetExportSizeErrorFormat 导出流末尾的尺寸错误片段，无换行以兼容按完整行计数的客户端。
+	DatasetExportSizeErrorFormat = "# dataset export: session %d exceeds size limit"
 
 	ContentPartTypeText = "text"
 

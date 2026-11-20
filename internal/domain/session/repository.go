@@ -133,6 +133,13 @@ type ExportSessionRow struct {
 	MessageIDs []uint
 	ToolIDs    []uint
 	ModelIDs   []string
+	OverBudget bool
+}
+
+// ExportBounds 由同一条查询取得的导出总数和 ID 上界。
+type ExportBounds struct {
+	Total     int
+	ThroughID uint `gorm:"column:through_id"`
 }
 
 // ExportPreview 统计预览结果
@@ -181,8 +188,12 @@ type SessionReadRepository interface {
 	ListDistinctModels(ctx context.Context, ownerIDs []uint, keyword string, startTime, endTime time.Time, sessionIDs []uint) ([]string, error)
 	// ListMessageCountStats 查询消息数统计（当前时间范围最大消息数 + 各固定桶的会话数）。ownerIDs 为 nil 表示不过滤（admin/demo 白名单路径），非 nil 时按归属 ID 过滤（空列表返回空结果，名下无 Key 不得越权查全量）；sessionIDs 非 nil 时按会话 ID 集合过滤（demo 白名单）。
 	ListMessageCountStats(ctx context.Context, ownerIDs []uint, startTime, endTime time.Time, sessionIDs []uint) (maxCount int, bucketCounts map[int]int64, err error)
-	// ListSessionsForExport 按筛选条件查询导出用会话行（不含消息内容，仅 IDs）
-	ListSessionsForExport(ctx context.Context, f ExportFilter) ([]*ExportSessionRow, error)
+	// GetSessionExportBounds 固定导出总数及匹配会话 ID 上界。
+	GetSessionExportBounds(ctx context.Context, f ExportFilter) (ExportBounds, error)
+	// ListSessionsForExport 按 ID 升序分页读取有界会话引用。
+	ListSessionsForExport(ctx context.Context, f ExportFilter, afterID, throughID uint) ([]*ExportSessionRow, error)
+	// LoadSessionExportPayload 只在实际有效消息与工具 JSON 总大小符合单条预算时加载内容。
+	LoadSessionExportPayload(ctx context.Context, row *ExportSessionRow) (map[uint]*MessageDetailProjection, map[uint]*ToolDetailProjection, bool, error)
 	// FindSessionForExportAt 按 id 升序取筛选结果的第 offset 条（越界钳到末条）及匹配总数；无匹配返回 (nil, 0, nil)
 	FindSessionForExportAt(ctx context.Context, f ExportFilter, offset int) (*ExportSessionRow, int, error)
 	// PreviewExport 按筛选条件统计预览（汇总 + 评分直方图 + 模型分面）

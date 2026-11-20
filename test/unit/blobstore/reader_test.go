@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hcd233/aris-mass/internal/common/constant"
 	"github.com/hcd233/aris-mass/internal/common/enum"
 	"github.com/hcd233/aris-mass/internal/common/vo"
 	"github.com/hcd233/aris-mass/internal/domain/blob"
@@ -51,6 +52,20 @@ func TestLocatePendingReturnsData(t *testing.T) {
 	insertBlob(t, e.db, pendingBlob(shaOf('a'), time.Now()))
 	view, err := e.reader.Locate(t.Context(), shaOf('a'))
 	if err != nil || view == nil || view.URL != "" || !bytes.Equal(view.Data, []byte("img")) || view.Mime != "image/png" {
+		t.Fatalf("view=%+v err=%v", view, err)
+	}
+}
+
+func TestLocateLargePendingReturnsMetadataOnly(t *testing.T) {
+	t.Parallel()
+	e := newReaderEnv(t, true)
+	row := pendingBlob(shaOf('a'), time.Now())
+	row.Data = make([]byte, constant.BlobMaxStoredBytes+1)
+	row.Size = int64(len(row.Data))
+	insertBlob(t, e.db, row)
+
+	view, err := e.reader.Locate(t.Context(), row.SHA256)
+	if err != nil || view == nil || view.URL != "" || view.Data != nil || view.Size != row.Size {
 		t.Fatalf("view=%+v err=%v", view, err)
 	}
 }

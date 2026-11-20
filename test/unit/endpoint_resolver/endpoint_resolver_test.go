@@ -133,6 +133,10 @@ func (s *stubEndpointRepo) Create(_ context.Context, _ *aggregate.Endpoint, _ ui
 	return 0, nil
 }
 
+func (s *stubEndpointRepo) Patch(context.Context, uint, *uint, bool, func(*aggregate.Endpoint) error) error {
+	return nil
+}
+
 func (s *stubEndpointRepo) Update(_ context.Context, _ *aggregate.Endpoint) error {
 	return nil
 }
@@ -229,6 +233,10 @@ func (s *endpointByIDRepo) BatchFindByIDs(_ context.Context, ids []uint) (map[ui
 
 func (s *endpointByIDRepo) Create(_ context.Context, _ *aggregate.Endpoint, _ uint) (uint, error) {
 	return 0, nil
+}
+
+func (s *endpointByIDRepo) Patch(context.Context, uint, *uint, bool, func(*aggregate.Endpoint) error) error {
+	return nil
 }
 
 func (s *endpointByIDRepo) Update(_ context.Context, _ *aggregate.Endpoint) error {

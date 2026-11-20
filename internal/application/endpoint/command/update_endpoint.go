@@ -8,6 +8,7 @@ import (
 	"github.com/hcd233/aris-mass/internal/application/endpoint/port"
 	"github.com/hcd233/aris-mass/internal/common/ierr"
 	"github.com/hcd233/aris-mass/internal/domain/llmproxy"
+	"github.com/hcd233/aris-mass/internal/domain/llmproxy/aggregate"
 	"github.com/hcd233/aris-mass/internal/logger"
 	"github.com/hcd233/aris-mass/internal/util"
 )
@@ -25,6 +26,10 @@ func NewUpdateEndpointHandler(repo llmproxy.EndpointRepository) port.UpdateEndpo
 func (h *updateEndpointHandler) Handle(ctx context.Context, cmd port.UpdateEndpointCommand) error {
 	log := logger.WithCtx(ctx)
 
+	if cmd.Visibility != nil && !cmd.IsAdmin {
+		return ierr.New(ierr.ErrUnauthorized, "only admin can set endpoint visibility")
+	}
+
 	// baseURL SSRF 校验放应用层且先于仓储查询：既避免非法 URL 触达 repo，
 	// 也避免"URL 非法"与"端点不存在"的报错差异被用来探测端点 ID。
 	// nil/空串表示不改或清空，不产生服务端请求目标，交由聚合根既有规则。
@@ -37,36 +42,23 @@ func (h *updateEndpointHandler) Handle(ctx context.Context, cmd port.UpdateEndpo
 		}
 	}
 
-	ep, err := h.repo.FindByID(ctx, cmd.EndpointID, cmd.ScopeUserID)
-	if err != nil {
-		log.Error("[EndpointCommand] Find endpoint for update failed", zap.Error(err))
-		return err
-	}
-	if ep == nil {
-		return ierr.New(ierr.ErrDataNotExists, "endpoint not found")
-	}
-	// 降级保护：admin 被降为 user 后仍能命中的自己名下公开端点，不得继续维护。
-	if ep.Visibility().IsPublic() && !cmd.IsAdmin {
-		return ierr.New(ierr.ErrUnauthorized, "only admin can modify a public endpoint")
-	}
-	// 可见性只能由归属者本人修改：防止 admin 把他人（含普通用户）的端点发布为公开或反向改动。
-	if cmd.Visibility != nil && ep.UserID() != cmd.OperatorUserID {
-		return ierr.New(ierr.ErrUnauthorized, "only the owner can change endpoint visibility")
-	}
-
-	// 校验在聚合根内、落库前完成：能力标记与对应 baseURL 必须一致，
-	// 否则写出的行会让之后每次读取都失败（见 Endpoint.Update 注释）。
-	if err := ep.Update(cmd.Name, cmd.OpenaiBaseURL, cmd.AnthropicBaseURL, cmd.APIKey, cmd.SupportOpenAIChatCompletion, cmd.SupportOpenAIResponse, cmd.SupportAnthropicMessage, cmd.SupportOpenAIDecision); err != nil {
-		return err
-	}
-	// nil = 不改：聚合根从 DB 恢复时已带上当前可见性，这里只在显式传值时覆盖。
-	if cmd.Visibility != nil {
-		if err := ep.SetVisibility(*cmd.Visibility); err != nil {
+	err := h.repo.Patch(ctx, cmd.EndpointID, cmd.ScopeUserID, cmd.Visibility != nil, func(ep *aggregate.Endpoint) error {
+		// 降级后的普通用户仍能命中自己名下的公开端点。
+		if ep.Visibility().IsPublic() && !cmd.IsAdmin {
+			return ierr.New(ierr.ErrUnauthorized, "only admin can modify a public endpoint")
+		}
+		if cmd.Visibility != nil && ep.UserID() != cmd.OperatorUserID {
+			return ierr.New(ierr.ErrUnauthorized, "only the owner can change endpoint visibility")
+		}
+		if err := ep.Update(cmd.Name, cmd.OpenaiBaseURL, cmd.AnthropicBaseURL, cmd.APIKey, cmd.SupportOpenAIChatCompletion, cmd.SupportOpenAIResponse, cmd.SupportAnthropicMessage, cmd.SupportOpenAIDecision); err != nil {
 			return err
 		}
-	}
-
-	if err := h.repo.Update(ctx, ep); err != nil {
+		if cmd.Visibility != nil {
+			return ep.SetVisibility(*cmd.Visibility)
+		}
+		return nil
+	})
+	if err != nil {
 		log.Error("[EndpointCommand] Update endpoint failed", zap.Error(err))
 		return err
 	}

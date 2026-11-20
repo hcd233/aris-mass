@@ -54,6 +54,7 @@ func (pm *PoolManager) runMessageStoreTask(task *dto.MessageStoreTask) {
 	if forged > 0 {
 		log.Warn("[StorePool] Client-supplied image refs downgraded to text", zap.Int("count", forged))
 	}
+	original := unified
 	if pm.externalizer != nil {
 		var stats blobstore.ExternalizeStats
 		unified, stats = pm.externalizer.Externalize(task.Ctx, unified)
@@ -65,18 +66,6 @@ func (pm *PoolManager) runMessageStoreTask(task *dto.MessageStoreTask) {
 		}
 	}
 
-	messages := lo.Map(unified, func(m *vo.UnifiedMessage, _ int) *dbmodel.Message {
-		modelID := ""
-		if m.Role == enum.RoleAssistant {
-			modelID = task.ModelID
-		}
-		return &dbmodel.Message{
-			ModelID:  modelID,
-			Message:  m,
-			CheckSum: vo.ComputeMessageChecksum(m, modelID, toolSchemas),
-		}
-	})
-
 	tools := lo.Map(task.Tools, func(t *vo.UnifiedTool, _ int) *dbmodel.Tool {
 		return &dbmodel.Tool{
 			Tool:     t,
@@ -87,7 +76,21 @@ func (pm *PoolManager) runMessageStoreTask(task *dto.MessageStoreTask) {
 	var messageIDs []uint
 	var session *dbmodel.Session
 	err := db.Transaction(func(tx *gorm.DB) error {
-		var err error
+		secured, err := blobstore.LockAvailableImageRefs(tx, original, unified)
+		if err != nil {
+			return err
+		}
+		messages := lo.Map(secured, func(m *vo.UnifiedMessage, _ int) *dbmodel.Message {
+			modelID := ""
+			if m.Role == enum.RoleAssistant {
+				modelID = task.ModelID
+			}
+			return &dbmodel.Message{
+				ModelID:  modelID,
+				Message:  m,
+				CheckSum: vo.ComputeMessageChecksum(m, modelID, toolSchemas),
+			}
+		})
 		messageIDs, err = pm.deduplicateAndStoreMessages(tx, messages)
 		if err != nil {
 			log.Error("[StorePool] Failed to store messages", zap.Error(err))

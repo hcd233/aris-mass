@@ -42,6 +42,10 @@ func (f *capturingEndpointRepo) Create(_ context.Context, _ *aggregate.Endpoint,
 	f.gotOwner = ownerUserID
 	return 1, nil
 }
+func (f *capturingEndpointRepo) Patch(context.Context, uint, *uint, bool, func(*aggregate.Endpoint) error) error {
+	return nil
+}
+
 func (f *capturingEndpointRepo) Update(context.Context, *aggregate.Endpoint) error { return nil }
 func (f *capturingEndpointRepo) Delete(context.Context, uint, *uint) error         { return nil }
 func (f *capturingEndpointRepo) DeleteCascade(context.Context, uint, *uint) error  { return nil }

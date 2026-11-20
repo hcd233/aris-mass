@@ -16,6 +16,8 @@ const (
 	DBConditionWhereIDIn        = "id IN ?"
 	DBOrderByID                 = "id"
 	DBLockStrengthUpdate        = "UPDATE"
+	DBLockStrengthKeyShare      = "KEY SHARE"
+	DBLockStrengthNoKeyUpdate   = "NO KEY UPDATE"
 
 	// TableMessages messages 表名
 	TableMessages = "messages"
@@ -30,7 +32,14 @@ const (
 	// DBConditionBlobDue 到期待重试
 	DBConditionBlobDue = "status = ? AND next_retry_at <= ?"
 	// DBConditionBlobStatusEquals 按状态过滤
-	DBConditionBlobStatusEquals = "status = ?"
+	DBConditionBlobStatusEquals     = "status = ?"
+	DBConditionBlobStatusNotEquals  = "status <> ?"
+	DBConditionBlobPurgeDue         = "purge_at <= ? AND id > ?"
+	DBConditionBlobUploadKeyEquals  = "id = ? AND status = ? AND storage_key = ?"
+	DBConditionBlobPurgeUnscheduled = "purge_at IS NULL"
+	FieldBlobPurgeAt                = "purge_at"
+	FieldBlobObjectMayExist         = "object_may_exist"
+	DBSelectBlobPreview             = "status, storage_key, mime, size, width, height, CASE WHEN size <= ? THEN data END AS data"
 	// DBOrderNextRetryAtAsc 重试按到期时间升序
 	DBOrderNextRetryAtAsc = "next_retry_at ASC"
 

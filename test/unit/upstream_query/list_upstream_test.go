@@ -58,6 +58,9 @@ func (f *fakeEndpointRepo) FindByID(context.Context, uint, *uint) (*llmagg.Endpo
 func (f *fakeEndpointRepo) Create(context.Context, *llmagg.Endpoint, uint) (uint, error) {
 	return 0, nil
 }
+func (f *fakeEndpointRepo) Patch(context.Context, uint, *uint, bool, func(*llmagg.Endpoint) error) error {
+	return nil
+}
 func (f *fakeEndpointRepo) Update(context.Context, *llmagg.Endpoint) error   { return nil }
 func (f *fakeEndpointRepo) Delete(context.Context, uint, *uint) error        { return nil }
 func (f *fakeEndpointRepo) DeleteCascade(context.Context, uint, *uint) error { return nil }

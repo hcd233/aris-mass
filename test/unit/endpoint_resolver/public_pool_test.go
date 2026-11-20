@@ -101,6 +101,10 @@ func (r *scopeRecordingEndpointRepo) Create(context.Context, *aggregate.Endpoint
 	return 0, nil
 }
 
+func (r *scopeRecordingEndpointRepo) Patch(context.Context, uint, *uint, bool, func(*aggregate.Endpoint) error) error {
+	return nil
+}
+
 func (r *scopeRecordingEndpointRepo) Update(context.Context, *aggregate.Endpoint) error { return nil }
 
 func (r *scopeRecordingEndpointRepo) Delete(context.Context, uint, *uint) error { return nil }

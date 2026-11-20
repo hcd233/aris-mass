@@ -156,8 +156,9 @@ func newFixture(t *testing.T, withCache bool, modelCount int) *fixture {
 	openAIProxy := transport.NewOpenAIProxy(tracker, guard)
 	anthropicProxy := transport.NewAnthropicProxy(tracker, guard)
 
+	resolver := llmproxyservice.NewEndpointResolver(endpointRepo, modelRepo, false, nil)
 	openAIUC := usecase.NewOpenAIUseCase(
-		llmproxyservice.NewEndpointResolver(endpointRepo, modelRepo, false, nil),
+		resolver,
 		usecase.NewListOpenAIModels(readRepo),
 		openAIProxy,
 		anthropicProxy,
@@ -168,9 +169,9 @@ func newFixture(t *testing.T, withCache bool, modelCount int) *fixture {
 		nil,
 	)
 	anthropicUC := usecase.NewAnthropicUseCase(
-		llmproxyservice.NewEndpointResolver(endpointRepo, modelRepo, false, nil),
+		resolver,
 		usecase.NewListAnthropicModels(readRepo),
-		usecase.NewCountTokens(readRepo, anthropicProxy, nil),
+		usecase.NewCountTokens(resolver, anthropicProxy, nil),
 		anthropicProxy,
 		openAIProxy,
 		noopTaskSubmitter{},

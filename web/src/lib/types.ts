@@ -887,9 +887,15 @@ export interface DatasetFormatPreviewRsp extends CommonRsp {
 }
 
 /** 数据集 NDJSON 导出结果：原始字节块、实际收到的行数与服务端声明的会话总数 */
+export interface DatasetRecipe {
+  minScore?: number;
+  modelIds?: string[];
+  startTime?: string;
+  endTime?: string;
+}
+
 export interface DatasetExportResult {
-  chunks: Uint8Array[];
-  lines: number;
+  body: ReadableStream<Uint8Array>;
   total: number;
 }
 

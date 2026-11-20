@@ -14,7 +14,7 @@ import (
 	"github.com/hcd233/aris-mass/internal/domain/llmproxy/aggregate"
 )
 
-// endpointRepoStub 按预置聚合根应答 FindByID，并记录 Update 调用次数。
+// endpointRepoStub 用预置聚合根处理 Patch，并记录写入次数。
 type endpointRepoStub struct {
 	ep         *aggregate.Endpoint
 	updateCall int
@@ -36,6 +36,13 @@ func (s *endpointRepoStub) Update(_ context.Context, ep *aggregate.Endpoint) err
 	s.updateCall++
 	s.ep = ep
 	return nil
+}
+
+func (s *endpointRepoStub) Patch(ctx context.Context, _ uint, _ *uint, _ bool, mutate func(*aggregate.Endpoint) error) error {
+	if err := mutate(s.ep); err != nil {
+		return err
+	}
+	return s.Update(ctx, s.ep)
 }
 
 func (s *endpointRepoStub) Delete(context.Context, uint, *uint) error        { return nil }

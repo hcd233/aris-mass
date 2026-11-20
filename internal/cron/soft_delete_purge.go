@@ -7,6 +7,7 @@ package cron
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/hcd233/aris-mass/internal/common/constant"
 	commonmodel "github.com/hcd233/aris-mass/internal/common/model"
@@ -119,6 +120,24 @@ func (c *SoftDeletePurgeCron) Trigger() bool {
 //	@author centonhuang
 //	@update 2026-06-24 10:00:00
 func (c *SoftDeletePurgeCron) purge(ctx context.Context) (*commonmodel.CronCallAuditMetadata, error) {
+	now := time.Now().UTC()
+	stats, softDeleteErr := c.purgeSoftDeleted(ctx, now)
+	if stats == nil {
+		stats = &commonmodel.CronCallAuditMetadata{}
+	}
+	purgedBlobs, err := blobstore.PurgeUnreferenced(ctx, c.db, c.store, now)
+	if err != nil {
+		logger.WithCtx(ctx).Error("[SoftDeletePurgeCron] Failed to purge blobs", zap.Error(err))
+	}
+	stats.PurgedBlobs = purgedBlobs
+	logger.WithCtx(ctx).Info("[SoftDeletePurgeCron] Blob purge completed", zap.Int64("blobsDeleted", stats.PurgedBlobs))
+	if softDeleteErr != nil {
+		return stats, softDeleteErr
+	}
+	return stats, err
+}
+
+func (c *SoftDeletePurgeCron) purgeSoftDeleted(ctx context.Context, now time.Time) (*commonmodel.CronCallAuditMetadata, error) {
 	log := logger.WithCtx(ctx)
 	db := c.db.WithContext(ctx)
 
@@ -160,52 +179,42 @@ func (c *SoftDeletePurgeCron) purge(ctx context.Context) (*commonmodel.CronCallA
 	orphanMessageIDs, _ := lo.Difference(candidateMessageIDs, usedMessageIDs)
 	orphanToolIDs, _ := lo.Difference(candidateToolIDs, usedToolIDs)
 
-	// 5. 删除前记下这些 message 引用的图片，message 删除后再清理不再被引用的图片
-	imageSHAs, err := blobstore.CollectImageRefs(ctx, c.db, orphanMessageIDs)
-	if err != nil {
-		log.Error("[SoftDeletePurgeCron] Failed to collect image refs, images kept", zap.Error(err))
-	}
-
-	// 6. 批量硬删除未被引用的 message 和 tool
-	var msgCount, toolCount int64
-	if len(orphanMessageIDs) > 0 {
-		msgCount, err = c.messageDAO.HardDeleteByIDs(db, orphanMessageIDs)
+	var msgCount, toolCount, sessionCount int64
+	err = db.Transaction(func(tx *gorm.DB) error {
+		imageSHAs, err := blobstore.CollectImageRefs(ctx, tx, orphanMessageIDs)
 		if err != nil {
-			log.Error("[SoftDeletePurgeCron] Failed to purge messages", zap.Error(err))
-			return nil, err
+			return err
 		}
-	}
-
-	if len(orphanToolIDs) > 0 {
-		toolCount, err = c.toolDAO.HardDeleteByIDs(db, orphanToolIDs)
-		if err != nil {
-			log.Error("[SoftDeletePurgeCron] Failed to purge tools", zap.Error(err))
-			return nil, err
+		if err := blobstore.SchedulePurge(tx, imageSHAs, now); err != nil {
+			return err
 		}
-	}
-
-	// 7. 硬删除被软删除的 session
-	sessionCount, err := c.sessionDAO.HardDeleteSoftDeleted(db)
+		if len(orphanMessageIDs) > 0 {
+			msgCount, err = c.messageDAO.HardDeleteByIDs(tx, orphanMessageIDs)
+			if err != nil {
+				return err
+			}
+		}
+		if len(orphanToolIDs) > 0 {
+			toolCount, err = c.toolDAO.HardDeleteByIDs(tx, orphanToolIDs)
+			if err != nil {
+				return err
+			}
+		}
+		sessionCount, err = c.sessionDAO.HardDeleteSoftDeleted(tx)
+		return err
+	})
 	if err != nil {
-		log.Error("[SoftDeletePurgeCron] Failed to purge sessions", zap.Error(err))
+		log.Error("[SoftDeletePurgeCron] Failed to purge soft deleted data", zap.Error(err))
 		return nil, err
-	}
-
-	// 8. 清理不再被引用的图片；失败只记日志，图片保留到下次有关联 message 被清理时
-	blobCount, err := blobstore.DeleteUnreferenced(ctx, c.db, c.store, imageSHAs)
-	if err != nil {
-		log.Error("[SoftDeletePurgeCron] Failed to purge blobs", zap.Error(err))
 	}
 
 	log.Info("[SoftDeletePurgeCron] Purge completed",
 		zap.Int64("sessionsDeleted", sessionCount),
 		zap.Int64("messagesDeleted", msgCount),
-		zap.Int64("toolsDeleted", toolCount),
-		zap.Int64("blobsDeleted", blobCount))
+		zap.Int64("toolsDeleted", toolCount))
 
 	return &commonmodel.CronCallAuditMetadata{
 		PurgedMessages: msgCount,
 		PurgedTools:    toolCount,
-		PurgedBlobs:    blobCount,
 	}, nil
 }

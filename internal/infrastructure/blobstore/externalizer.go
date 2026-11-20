@@ -2,6 +2,7 @@ package blobstore
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -10,14 +11,16 @@ import (
 
 	"github.com/hcd233/aris-mass/internal/common/constant"
 	"github.com/hcd233/aris-mass/internal/common/enum"
+	"github.com/hcd233/aris-mass/internal/common/ierr"
 	"github.com/hcd233/aris-mass/internal/common/vo"
+	"github.com/hcd233/aris-mass/internal/config"
 	"github.com/hcd233/aris-mass/internal/infrastructure/database/dao"
 	"github.com/hcd233/aris-mass/internal/logger"
 )
 
 // ExternalizeStats 一次外置的统计
 //
-//	Queued 为交给上传池异步处理的新图；Uploaded/Pending/Unprocessable 为同步写入的 blobs 行。
+//	Queued 为原图已落库、且交给上传池的新图；其余状态为提交时的处理结果。
 //
 //	@author centonhuang
 //	@update 2026-11-06 10:00:00
@@ -31,10 +34,10 @@ func (s *ExternalizeStats) count(status enum.BlobStatus) {
 	switch status {
 	case enum.BlobStatusUploaded:
 		s.Uploaded++
-	case enum.BlobStatusPending:
-		s.Pending++
-	default:
+	case enum.BlobStatusUnprocessable:
 		s.Unprocessable++
+	default:
+		s.Pending++
 	}
 }
 
@@ -68,7 +71,7 @@ func NewExternalizer(db *gorm.DB, uploader *Uploader) *Externalizer {
 	return &Externalizer{db: db, uploader: uploader}
 }
 
-// Stop 停止上传池，队列中剩余图片落 pending 行
+// Stop 停止上传池，队列中剩余图片由重试任务处理
 //
 //	@receiver e *Externalizer
 //	@author centonhuang
@@ -110,13 +113,22 @@ func (e *Externalizer) Externalize(ctx context.Context, msgs []*vo.UnifiedMessag
 		return msgs, stats
 	}
 	refs := make(map[string]imageMeta, len(order))
+	unavailable := make(map[string]bool)
 	for _, row := range rows {
+		if row.Status == enum.BlobStatusDeleting {
+			unavailable[row.SHA256] = true
+			continue
+		}
 		refs[row.SHA256] = imageMeta{mime: row.Mime, size: row.Size}
 	}
 	stats.Reused = len(refs)
 
 	for _, sha := range order {
 		if _, ok := refs[sha]; ok {
+			continue
+		}
+		if unavailable[sha] {
+			stats.Failed++
 			continue
 		}
 		raw := raws[sha]
@@ -143,6 +155,51 @@ func (e *Externalizer) Externalize(ctx context.Context, msgs []*vo.UnifiedMessag
 		return &cp
 	})
 	return out, stats
+}
+
+// LockAvailableImageRefs 锁定新引用直到消息写入提交，已被 GC 认领的图片恢复 data URI。
+func LockAvailableImageRefs(tx *gorm.DB, original, rewritten []*vo.UnifiedMessage) ([]*vo.UnifiedMessage, error) {
+	var shas []string
+	for mi, msg := range rewritten {
+		if msg == original[mi] {
+			continue
+		}
+		for pi, part := range msg.Content.Parts {
+			if part == nil || part == original[mi].Content.Parts[pi] {
+				continue
+			}
+			if sha, ok := vo.ParseImageRef(part.ImageURL); ok {
+				shas = append(shas, sha)
+			}
+		}
+	}
+	if len(shas) == 0 {
+		return rewritten, nil
+	}
+	slices.Sort(shas)
+	shas = slices.Compact(shas)
+	available := make(map[string]bool, len(shas))
+	for chunk := range slices.Chunk(shas, max(config.SQLBatchSize, 1)) {
+		locked, err := dao.GetBlobDAO().LockReferenceSHAs(tx, chunk)
+		if err != nil {
+			return nil, ierr.Wrap(ierr.ErrDBQuery, err, "lock available image references")
+		}
+		for _, sha := range locked {
+			available[sha] = true
+		}
+	}
+	if len(available) == 0 {
+		return original, nil
+	}
+	return vo.RewriteImageParts(rewritten, func(mi, pi int, part *vo.UnifiedContentPart) *vo.UnifiedContentPart {
+		before := original[mi].Content.Parts[pi]
+		if part != before {
+			if sha, ok := vo.ParseImageRef(part.ImageURL); ok && !available[sha] {
+				return before
+			}
+		}
+		return nil
+	}), nil
 }
 
 // collect 找出所有 data URI 图片：sites 为 (消息下标, 部分下标) → sha256，order 为去重后的首次出现顺序

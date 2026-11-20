@@ -76,8 +76,18 @@ func (r *fakeSessionReadRepo) ListMessageCountStats(ctx context.Context, ownerID
 	return 82, map[int]int64{0: 5, 1: 3, 2: 7}, nil
 }
 
-func (r *fakeSessionReadRepo) ListSessionsForExport(ctx context.Context, f session.ExportFilter) ([]*session.ExportSessionRow, error) {
+func (r *fakeSessionReadRepo) GetSessionExportBounds(ctx context.Context, f session.ExportFilter) (session.ExportBounds, error) {
+	return session.ExportBounds{}, nil
+}
+
+func (r *fakeSessionReadRepo) ListSessionsForExport(ctx context.Context, f session.ExportFilter, afterID, throughID uint) ([]*session.ExportSessionRow, error) {
 	return nil, nil
+}
+
+func (r *fakeSessionReadRepo) LoadSessionExportPayload(ctx context.Context, row *session.ExportSessionRow) (
+	messages map[uint]*session.MessageDetailProjection, tools map[uint]*session.ToolDetailProjection, overBudget bool, err error,
+) {
+	return nil, nil, false, nil
 }
 
 func (r *fakeSessionReadRepo) FindSessionForExportAt(ctx context.Context, f session.ExportFilter, offset int) (*session.ExportSessionRow, int, error) {

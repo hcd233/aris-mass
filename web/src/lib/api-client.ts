@@ -25,6 +25,7 @@ import type {
   CronCallAuditOptionListReq,
   CronCallAuditOptionListRsp,
   DatasetExportResult,
+  DatasetRecipe,
   DatasetFormatPreviewRsp,
   DatasetPreviewRsp,
   DeleteSessionRsp,
@@ -137,7 +138,6 @@ export class ApiError extends Error {
 }
 
 /** NDJSON 行分隔符 "\n" 的字节值 */
-const NEWLINE_BYTE = 0x0a;
 
 class ApiClient {
   private refreshing: Promise<boolean> | null = null;
@@ -1028,12 +1028,7 @@ class ApiClient {
 
   // ─── Dataset ───────────────────────────────────────────────────────────────────
 
-  async previewDataset(params: {
-    minScore?: number;
-    modelIds?: string[];
-    startTime?: string;
-    endTime?: string;
-  }): Promise<DatasetPreviewRsp> {
+  async previewDataset(params: DatasetRecipe): Promise<DatasetPreviewRsp> {
     const sp = new URLSearchParams();
     if (params.minScore) sp.set("minScore", String(params.minScore));
     if (params.modelIds && params.modelIds.length > 0)
@@ -1043,13 +1038,9 @@ class ApiClient {
     return this.request<DatasetPreviewRsp>(`${API_PREFIX}/dataset/preview?${sp}`);
   }
 
-  async previewDatasetFormat(params: {
-    minScore?: number;
-    modelIds?: string[];
-    startTime?: string;
-    endTime?: string;
-    offset?: number;
-  }): Promise<DatasetFormatPreviewRsp> {
+  async previewDatasetFormat(
+    params: DatasetRecipe & { offset?: number },
+  ): Promise<DatasetFormatPreviewRsp> {
     const sp = new URLSearchParams();
     if (params.minScore) sp.set("minScore", String(params.minScore));
     if (params.modelIds && params.modelIds.length > 0)
@@ -1060,18 +1051,9 @@ class ApiClient {
     return this.request<DatasetFormatPreviewRsp>(`${API_PREFIX}/dataset/sample?${sp}`);
   }
 
-  /**
-   * 流式导出 ShareGPT NDJSON。响应字节原样收集（不解码成字符串，内存只占一份），
-   * 按换行数回调进度；收到的行数少于 X-Total-Sessions 说明服务端中途中断。
-   */
+  /** 发起带 JWT 的 ShareGPT NDJSON 导出，交由下载端消费响应流。 */
   async exportDatasetStream(
-    params: {
-      minScore?: number;
-      modelIds?: string[];
-      startTime?: string;
-      endTime?: string;
-    },
-    onProgress: (lines: number, total: number) => void,
+    params: DatasetRecipe,
     signal?: AbortSignal,
   ): Promise<DatasetExportResult> {
     const sp = new URLSearchParams();
@@ -1107,22 +1089,7 @@ class ApiClient {
     }
     if (!res.body) throw new ApiError(500, "No response body");
 
-    const total = Number(res.headers.get("X-Total-Sessions") ?? 0);
-    const chunks: Uint8Array[] = [];
-    let lines = 0;
-    const reader = res.body.getReader();
-    try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-        for (const byte of value) if (byte === NEWLINE_BYTE) lines++;
-        onProgress(lines, total);
-      }
-    } finally {
-      reader.releaseLock();
-    }
-    return { chunks, lines, total };
+    return { body: res.body, total: Number(res.headers.get("X-Total-Sessions") ?? 0) };
   }
 }
 

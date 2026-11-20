@@ -148,9 +148,10 @@ export function SampleInspector({
           </Button>
         </div>
         <span className="font-mono text-xs text-muted-foreground tabular-nums" aria-live="polite">
-          {t("dataset.sample_position")
-            .replace("{current}", formatInteger(offset + 1))
-            .replace("{total}", formatInteger(total))}
+          {total > 0 &&
+            t("dataset.sample_position")
+              .replace("{current}", formatInteger(offset + 1))
+              .replace("{total}", formatInteger(total))}
         </span>
         <ToggleGroup
           variant="segmented"
@@ -194,11 +195,11 @@ export function SampleInspector({
             <span>{t("dataset.sample_images").replace("{n}", String(parsed.images.length))}</span>
           )}
         </div>
-      ) : (
+      ) : loading ? (
         <div className="border-b border-border px-4 py-2.5 md:px-5">
           <Skeleton className="h-4 w-64 max-w-full" />
         </div>
-      )}
+      ) : null}
 
       <div
         className={cn(
@@ -207,7 +208,7 @@ export function SampleInspector({
         )}
         aria-busy={loading}
       >
-        {!sample ? (
+        {!sample && loading ? (
           <div className="space-y-4 py-5">
             {[0, 1, 2].map((i) => (
               <div key={i} className="grid gap-4 md:grid-cols-[7rem_minmax(0,1fr)]">
@@ -216,6 +217,8 @@ export function SampleInspector({
               </div>
             ))}
           </div>
+        ) : !sample ? (
+          <p className="py-4 text-sm text-muted-foreground">{t("dataset.sample_error")}</p>
         ) : showJSON ? (
           <div className="space-y-3 py-4">
             {view !== "json" && (

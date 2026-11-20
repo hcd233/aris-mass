@@ -55,11 +55,11 @@ func (r *reader) IsReferenced(ctx context.Context, messageIDs []uint, sha string
 }
 
 func (r *reader) Locate(ctx context.Context, sha string) (*blob.ImageView, error) {
-	row, err := dao.GetBlobDAO().GetBySHA256(r.db.WithContext(ctx), sha)
+	row, err := dao.GetBlobDAO().GetPreviewBySHA256(r.db.WithContext(ctx), sha)
 	if err != nil {
 		return nil, ierr.Wrap(ierr.ErrDBQuery, err, "get blob")
 	}
-	if row == nil {
+	if row == nil || row.Status == enum.BlobStatusDeleting {
 		return nil, nil
 	}
 	view := &blob.ImageView{Mime: row.Mime, Size: row.Size, Width: row.Width, Height: row.Height}
@@ -87,7 +87,7 @@ func (r *reader) ReadBytes(ctx context.Context, sha string) (mime string, data [
 	if err != nil {
 		return "", nil, ierr.Wrap(ierr.ErrDBQuery, err, "get blob")
 	}
-	if row == nil {
+	if row == nil || row.Status == enum.BlobStatusDeleting {
 		return "", nil, ierr.New(ierr.ErrDataNotExists, "blob not found")
 	}
 	if row.Status != enum.BlobStatusUploaded {

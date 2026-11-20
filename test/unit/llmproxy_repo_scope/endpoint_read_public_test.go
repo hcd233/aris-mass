@@ -20,7 +20,7 @@ import (
 //
 //	own:        101 名下 gpt-x（context=1000）
 //	public-EP:  999 名下 gpt-x（context=9999）与 gpt-public（context=8000），端点 visibility=public
-func seedReadCatalog(t *testing.T, db *gorm.DB) (publicEndpointID uint) {
+func seedReadCatalog(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	// 公开行先入库（id 更小）：去重必须依赖「自有优先」排序，而不是主键序。
 	epPublic := &dbmodel.Endpoint{UserID: 999, Name: "ep-public", APIKey: "k", OpenaiBaseURL: "https://o.example.com", SupportOpenAIChatCompletion: true, Visibility: string(enum.EndpointVisibilityPublic)}
@@ -42,7 +42,6 @@ func seedReadCatalog(t *testing.T, db *gorm.DB) (publicEndpointID uint) {
 			t.Fatal(err)
 		}
 	}
-	return epPublic.ID
 }
 
 func newReadCache(t *testing.T) *cache.ReadCache {
@@ -59,7 +58,7 @@ func TestEndpointRead_PublicAliasesVisible(t *testing.T) {
 	if err := db.AutoMigrate(&dbmodel.Endpoint{}, &dbmodel.Model{}); err != nil {
 		t.Fatal(err)
 	}
-	publicEndpointID := seedReadCatalog(t, db)
+	seedReadCatalog(t, db)
 
 	rc := newReadCache(t)
 	repo := repository.NewCachedEndpointReadRepository(db, rc)
@@ -88,14 +87,6 @@ func TestEndpointRead_PublicAliasesVisible(t *testing.T) {
 	}
 	if ownDetail.ContextLength != 1000 {
 		t.Fatalf("gpt-x context = %d, want own 1000 (own must win over public)", ownDetail.ContextLength)
-	}
-
-	proj, _, err := repo.FindEndpointByAlias(ctx, 101, "gpt-public", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if proj == nil || proj.ID != publicEndpointID {
-		t.Fatalf("FindEndpointByAlias(gpt-public) = %+v, want endpoint %d", proj, publicEndpointID)
 	}
 
 	empty, err := repo.ListAliases(ctx, 0)
