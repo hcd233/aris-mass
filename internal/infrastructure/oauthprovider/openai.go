@@ -124,7 +124,7 @@ func (c *openaiOAuthClient) postTokenForm(ctx context.Context, form url.Values) 
 	req.Header.Set(constant.HTTPHeaderContentType, constant.HTTPContentTypeFormURLEncoded)
 	setCodexClientHeaders(req.Header)
 
-	resp, err := httpclient.GetHTTPClient().Do(req)
+	resp, err := httpclient.GetEndpointHTTPClient(enum.EndpointAuthOAuthOpenAI).Do(req)
 	if err != nil {
 		return nil, ierr.Wrap(ierr.ErrProxyRequest, err, "openai oauth token request")
 	}
@@ -195,7 +195,7 @@ func (c *openaiOAuthClient) ProbeQuota(ctx context.Context, accessToken, account
 	req.Header.Set(constant.HTTPHeaderChatGPTAccountID, accountRef)
 	setCodexClientHeaders(req.Header)
 
-	resp, err := httpclient.GetHTTPClient().Do(req)
+	resp, err := httpclient.GetEndpointHTTPClient(enum.EndpointAuthOAuthOpenAI).Do(req)
 	if err != nil {
 		return nil, ierr.Wrap(ierr.ErrProxyRequest, err, "openai oauth usage request")
 	}

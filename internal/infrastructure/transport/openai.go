@@ -196,7 +196,7 @@ func (p *openAIProxy) sendUpstreamRequestOnce(ctx context.Context, ep vo.Upstrea
 		zap.Any("upstreamRequestSummary", parseUpstreamRequestSummary(body)),
 	)
 
-	resp, err := httpclient.GetHTTPClient().Do(req)
+	resp, err := httpclient.GetEndpointHTTPClient(ep.AuthType).Do(req)
 	if err != nil {
 		return nil, &model.UpstreamConnectionError{Cause: err}
 	}

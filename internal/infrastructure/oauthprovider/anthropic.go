@@ -191,7 +191,7 @@ func (c *anthropicOAuthClient) postToken(ctx context.Context, body []byte) (*ser
 	req.Header.Set(constant.HTTPHeaderAccept, constant.HTTPAcceptJSONAny)
 	setClaudeClientHeaders(req.Header)
 
-	resp, err := httpclient.GetHTTPClient().Do(req)
+	resp, err := httpclient.GetEndpointHTTPClient(enum.EndpointAuthOAuthAnthropic).Do(req)
 	if err != nil {
 		return nil, ierr.Wrap(ierr.ErrProxyRequest, err, "claude oauth token request")
 	}
@@ -246,7 +246,7 @@ func (c *anthropicOAuthClient) ProbeQuota(ctx context.Context, accessToken, _ st
 	req.Header.Set(constant.HTTPHeaderAnthropicBeta, constant.OAuthClaudeBetaHeader)
 	setClaudeClientHeaders(req.Header)
 
-	resp, err := httpclient.GetHTTPClient().Do(req)
+	resp, err := httpclient.GetEndpointHTTPClient(enum.EndpointAuthOAuthAnthropic).Do(req)
 	if err != nil {
 		return nil, ierr.Wrap(ierr.ErrProxyRequest, err, "claude oauth usage request")
 	}

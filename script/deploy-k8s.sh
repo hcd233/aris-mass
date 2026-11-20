@@ -109,7 +109,7 @@ mask_sensitive_keys_to_secret() {
     esac
 
     case "${key}" in
-      *SECRET*|*PASSWORD*|*KEY*|*TOKEN*)
+      *SECRET*|*PASSWORD*|*KEY*|*TOKEN*|OAUTH_SUBSCRIPTION_PROXY)
         printf '%s\n' "${line}" >> "${SECRET_ENV}"
         ;;
       *)

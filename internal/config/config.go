@@ -202,6 +202,9 @@ var (
 	//	（不影响 API Key 端点）。密钥丢失 = 已绑定订阅账号需全部重新授权。
 	OAuthCredentialKey []byte
 
+	// OAuthSubscriptionProxy 是 Codex、Claude 订阅流量共用的出站代理配置。
+	OAuthSubscriptionProxy string
+
 	// UpstreamCircuitEnabled bool 是否启用上游熔断
 	//	@update 2026-08-20 10:00:00
 	UpstreamCircuitEnabled bool
@@ -428,6 +431,7 @@ func InitEnvironment() {
 	MockUpstreamEnabled = config.GetBool("mock.upstream.enabled")
 
 	OAuthCredentialKey = parseOAuthCredentialKey(config.GetString("oauth.credential_key"))
+	OAuthSubscriptionProxy = config.GetString("oauth.subscription.proxy")
 
 	UpstreamCircuitEnabled = config.GetBool("upstream.circuit.enabled")
 	UpstreamCircuitWindow = max(config.GetDuration("upstream.circuit.window"), constant.ResilienceMinWindow)
