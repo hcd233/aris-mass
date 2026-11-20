@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -22,17 +23,26 @@ func init() {
 	httpclient.InitHTTPClient()
 }
 
-// TestAuthorizeURLContainsPKCEParams 授权链接必须携带 PKCE 与 state 参数。
+// TestAuthorizeURLContainsPKCEParams 授权链接必须携带 PKCE、state 与正确的 response_type。
 func TestAuthorizeURLContainsPKCEParams(t *testing.T) {
 	t.Parallel()
 
 	for _, provider := range enum.OAuthProviders {
 		client := oauthprovider.NewClient(provider)
-		url := client.AuthorizeURL("challenge_x", "state_y")
+		rawURL := client.AuthorizeURL("challenge_x", "state_y")
 		for _, want := range []string{"code_challenge=challenge_x", "state=state_y", "code_challenge_method=S256"} {
-			if !strings.Contains(url, want) {
-				t.Fatalf("%s authorize url missing %q: %s", provider, want, url)
+			if !strings.Contains(rawURL, want) {
+				t.Fatalf("%s authorize url missing %q: %s", provider, want, rawURL)
 			}
+		}
+		// response_type 的取值是 code；authorization_code 是 token 请求 grant_type 的取值，
+		// 混用会被上游以 unsupported_response_type 拒绝。
+		parsed, err := url.Parse(rawURL)
+		if err != nil {
+			t.Fatalf("%s authorize url unparsable: %v", provider, err)
+		}
+		if got := parsed.Query().Get(constant.OAuthParamResponseType); got != constant.OAuthParamValueCode {
+			t.Fatalf("%s authorize url response_type = %q, want %q", provider, got, constant.OAuthParamValueCode)
 		}
 	}
 }
