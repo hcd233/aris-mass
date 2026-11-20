@@ -31,7 +31,7 @@ func shaOf(c byte) string {
 
 func insertBlob(t *testing.T, db *gorm.DB, b *dbmodel.Blob) *dbmodel.Blob {
 	t.Helper()
-	if err := dao.GetBlobDAO().InsertIgnoreConflict(db, b); err != nil {
+	if _, err := dao.GetBlobDAO().InsertIgnoreConflict(db, b); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
 	got, err := dao.GetBlobDAO().GetBySHA256(db, b.SHA256)

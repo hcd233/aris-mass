@@ -65,7 +65,7 @@ func (r *dashboardRepository) QueryStats(ctx context.Context, apiKeyIDs []uint, 
 	if isEmptyScope(apiKeyIDs) {
 		return &modelcall.DashboardStats{}, nil
 	}
-	key := readCacheKey(constant.ReadCachePurposeDashboardStats, cacheScopeIDs(apiKeyIDs), cacheTimeBucket(start), cacheTimeBucket(end))
+	key := readCacheKey(constant.ReadCachePurposeDashboardStats, cacheScopeIDs(apiKeyIDs), start.UTC(), end.UTC())
 	load := func(loadCtx context.Context) ([]*modelcall.DashboardStats, error) {
 		var results []*modelcall.DashboardStats
 		if err := r.windowQuery(loadCtx, apiKeyIDs, start, end).
@@ -102,7 +102,7 @@ func (r *dashboardRepository) QueryStatsSeries(ctx context.Context, apiKeyIDs []
 	if isEmptyScope(apiKeyIDs) {
 		return []*modelcall.DashboardStatsPoint{}, nil
 	}
-	key := readCacheKey(constant.ReadCachePurposeDashboardSeries, cacheScopeIDs(apiKeyIDs), cacheTimeBucket(start), cacheTimeBucket(end), granularity)
+	key := readCacheKey(constant.ReadCachePurposeDashboardSeries, cacheScopeIDs(apiKeyIDs), start.UTC(), end.UTC(), granularity)
 	load := func(loadCtx context.Context) ([]*modelcall.DashboardStatsPoint, error) {
 		var results []*modelcall.DashboardStatsPoint
 		if err := r.windowQuery(loadCtx, apiKeyIDs, start, end).
@@ -119,8 +119,7 @@ func (r *dashboardRepository) QueryStatsSeries(ctx context.Context, apiKeyIDs []
 
 // QueryUptimeBuckets 可用性状态条的定长桶（恰好 buckets 个，无请求的桶补零）。
 //
-// 桶边界以 start 为原点按桶宽等分；补桶在仓储内完成，因为读缓存按 cacheTimeBucket
-// 对齐的时间窗共享结果，桶边界必须随缓存内容一起固化，否则命中缓存时桶会错位。
+// 桶边界以 start 为原点按桶宽等分。缓存键使用查询的完整时间窗，保留原点和桶宽。
 func (r *dashboardRepository) QueryUptimeBuckets(ctx context.Context, apiKeyIDs []uint, start, end time.Time, buckets int) ([]*modelcall.DashboardUptimePoint, error) {
 	if buckets <= 0 {
 		return []*modelcall.DashboardUptimePoint{}, nil
@@ -129,7 +128,7 @@ func (r *dashboardRepository) QueryUptimeBuckets(ctx context.Context, apiKeyIDs 
 		return modelcall.BuildUptimeBuckets(nil, start, end, buckets), nil
 	}
 	widthSeconds := int64(modelcall.UptimeBucketWidth(start, end, buckets) / time.Second)
-	key := readCacheKey(constant.ReadCachePurposeDashboardUptime, cacheScopeIDs(apiKeyIDs), cacheTimeBucket(start), cacheTimeBucket(end), buckets)
+	key := readCacheKey(constant.ReadCachePurposeDashboardUptime, cacheScopeIDs(apiKeyIDs), start.UTC(), end.UTC(), buckets)
 	load := func(loadCtx context.Context) ([]*modelcall.DashboardUptimePoint, error) {
 		var results []*modelcall.DashboardUptimePoint
 		bucketExpr := fmt.Sprintf(constant.DateBinUptimeTemplate, widthSeconds)
@@ -159,7 +158,7 @@ func (r *dashboardRepository) QueryModelSeries(ctx context.Context, apiKeyIDs []
 	if isEmptyScope(apiKeyIDs) {
 		return []*modelcall.DashboardModelPoint{}, nil
 	}
-	key := readCacheKey(constant.ReadCachePurposeDashboardModel, cacheScopeIDs(apiKeyIDs), cacheTimeBucket(start), cacheTimeBucket(end), granularity)
+	key := readCacheKey(constant.ReadCachePurposeDashboardModel, cacheScopeIDs(apiKeyIDs), start.UTC(), end.UTC(), granularity)
 	load := func(loadCtx context.Context) ([]*modelcall.DashboardModelPoint, error) {
 		var results []*modelcall.DashboardModelPoint
 		if err := r.windowQuery(loadCtx, apiKeyIDs, start, end).
@@ -178,7 +177,7 @@ func (r *dashboardRepository) QueryTopErrors(ctx context.Context, apiKeyIDs []ui
 	if isEmptyScope(apiKeyIDs) {
 		return []*modelcall.DashboardErrorRow{}, nil
 	}
-	key := readCacheKey(constant.ReadCachePurposeDashboardErrors, cacheScopeIDs(apiKeyIDs), cacheTimeBucket(start), cacheTimeBucket(end), limit)
+	key := readCacheKey(constant.ReadCachePurposeDashboardErrors, cacheScopeIDs(apiKeyIDs), start.UTC(), end.UTC(), limit)
 	load := func(loadCtx context.Context) ([]*modelcall.DashboardErrorRow, error) {
 		var results []*modelcall.DashboardErrorRow
 		if err := r.windowQuery(loadCtx, apiKeyIDs, start, end).
@@ -199,7 +198,7 @@ func (r *dashboardRepository) QueryEndpointHealth(ctx context.Context, apiKeyIDs
 	if isEmptyScope(apiKeyIDs) {
 		return []*modelcall.DashboardEndpointRow{}, nil
 	}
-	key := readCacheKey(constant.ReadCachePurposeDashboardEndpoint, cacheScopeIDs(apiKeyIDs), cacheTimeBucket(start), cacheTimeBucket(end), limit)
+	key := readCacheKey(constant.ReadCachePurposeDashboardEndpoint, cacheScopeIDs(apiKeyIDs), start.UTC(), end.UTC(), limit)
 	load := func(loadCtx context.Context) ([]*modelcall.DashboardEndpointRow, error) {
 		var results []*modelcall.DashboardEndpointRow
 		if err := r.windowQuery(loadCtx, apiKeyIDs, start, end).
@@ -237,7 +236,7 @@ func (r *dashboardRepository) QueryGroupUsage(ctx context.Context, apiKeyIDs []u
 	if isEmptyScope(apiKeyIDs) {
 		return []*modelcall.DashboardGroupRow{}, nil
 	}
-	key := readCacheKey(constant.ReadCachePurposeDashboardGroup, cacheScopeIDs(apiKeyIDs), cacheTimeBucket(start), cacheTimeBucket(end), dimension, rulesFingerprint)
+	key := readCacheKey(constant.ReadCachePurposeDashboardGroup, cacheScopeIDs(apiKeyIDs), start.UTC(), end.UTC(), dimension, rulesFingerprint)
 	load := func(loadCtx context.Context) ([]*modelcall.DashboardGroupRow, error) {
 		var results []*modelcall.DashboardGroupRow
 		query := r.windowQuery(loadCtx, apiKeyIDs, start, end).Select(keyExpr + constant.DashboardGroupUsageSelect)
@@ -264,7 +263,7 @@ func (r *dashboardRepository) QueryHeatmap(ctx context.Context, apiKeyIDs []uint
 	if isEmptyScope(apiKeyIDs) {
 		return []*modelcall.DashboardHeatmapCell{}, nil
 	}
-	key := readCacheKey(constant.ReadCachePurposeDashboardHeatmap, cacheScopeIDs(apiKeyIDs), cacheTimeBucket(start), cacheTimeBucket(end), location)
+	key := readCacheKey(constant.ReadCachePurposeDashboardHeatmap, cacheScopeIDs(apiKeyIDs), start.UTC(), end.UTC(), location)
 	load := func(loadCtx context.Context) ([]*modelcall.DashboardHeatmapCell, error) {
 		var results []*modelcall.DashboardHeatmapCell
 		if err := r.windowQuery(loadCtx, apiKeyIDs, start, end).

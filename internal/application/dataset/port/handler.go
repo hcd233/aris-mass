@@ -44,8 +44,8 @@ type PreviewDatasetHandler interface {
 
 // ExportStream 一次流式导出
 //
-//	Total 在开始写之前即已确定（匹配的会话数）；Write 把 ShareGPT JSONL 按会话分批读取、逐行写入 w，
-//	中途出错即返回，客户端以收到的行数少于 Total 判定导出不完整。
+//	Total 是起始查询的匹配会话数；Write 在固定 ID 上界内按页重新应用筛选，逐会话写入 ShareGPT JSONL。
+//	客户端收齐 Total 条完整行且没有尾部残片时才提交下载。尺寸超限时，流末尾包含不带换行的错误说明。
 //
 //	@author centonhuang
 //	@update 2026-11-06 10:00:00

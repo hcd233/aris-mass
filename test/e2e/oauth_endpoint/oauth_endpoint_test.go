@@ -207,7 +207,7 @@ func newFixture(t *testing.T) *fixture {
 		anthropic: usecase.NewAnthropicUseCase(
 			resolver,
 			usecase.NewListAnthropicModels(readRepo),
-			usecase.NewCountTokens(readRepo, anthropicProxy, tokens),
+			usecase.NewCountTokens(resolver, anthropicProxy, tokens),
 			anthropicProxy,
 			openAIProxy,
 			submitter, nil, nil, nil, tokens,

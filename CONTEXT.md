@@ -182,7 +182,7 @@ _Avoid_: chat message, prompt, response
 _Avoid_: message dto, generic message
 
 **Blob（图片存储记录）**:
-message 中一张图片的存储记录（`blobs` 表），以**原始字节**的 sha256 唯一标识、全局只存一份。新图先在内存中由独立的图片上传池压缩并上传：上传成功才写 `uploaded` 行（表中不留字节），上传失败写 `pending` 行（暂存压缩后字节）；队列满、内存预算超限或进程退出排空时直接把原图写成 `pending` 行，由重试任务压缩补传。超过重试上限为 `failed`；无法压缩到 2MB 内为 `unprocessable`（原图留表中，可导出，不作预览）。只存压缩后的版本（≤2MB），不保留原图。所有引用它的 message 被软删清理任务硬删后，blobs 行与对象一并删除。
+message 中一张图片的存储记录（`blobs` 表），以**原始字节**的 sha256 唯一标识、全局只存一份。新图先持久化为 `pending`，成功后才可由 message 引用。上传池或定时任务负责压缩及补传。上传成功转为 `uploaded` 并清除数据库内的图片字节。超过重试上限为 `failed`。无法压缩到 2MB 内为 `unprocessable`，原图可导出，详情页只返回元数据。清理任务持久记录候选，确认无 message 引用后转为 `deleting`，对象删除成功后再删除记录。
 _Avoid_: attachment, file, asset
 
 **ImageRef（图片引用）**:
@@ -274,7 +274,7 @@ _Avoid_: compression record, tool output compression
 _Avoid_: data pipeline, etl, data processing
 
 **DatasetExport（数据集导出）**:
-按筛选条件（评分阈值、模型、时间范围）从会话数据生成 ShareGPT 格式 JSONL 文件的流式导出能力。一条会话 = 一行 JSONL，全量保留多轮对话、思维链（`<think>` 标签）、工具调用和工具响应。不持久化导出文件，浏览器流式下载。模型条件是「任一所选」：会话用过任一所选模型即命中。
+按筛选条件（评分阈值、模型、时间范围）从会话数据生成 ShareGPT 格式 JSONL 文件的流式导出能力。一条会话对应一行 JSONL，包含多轮对话、思维链（`<think>` 标签）、工具调用和工具响应。服务端限定单会话载荷并逐批读取。支持直接写文件的浏览器逐块落盘，其余浏览器按容量上限在内存中暂存。会话用过任一所选模型即命中模型条件。
 _Avoid_: data export, dataset generation, training data extraction
 
 **ShareGPT Conversation（ShareGPT 对话记录）**:

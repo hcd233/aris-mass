@@ -50,6 +50,10 @@ func (r *scopedEndpointRepo) BatchFindByIDs(context.Context, []uint) (map[uint]*
 func (r *scopedEndpointRepo) Create(context.Context, *aggregate.Endpoint, uint) (uint, error) {
 	return 0, nil
 }
+func (r *scopedEndpointRepo) Patch(context.Context, uint, *uint, bool, func(*aggregate.Endpoint) error) error {
+	return nil
+}
+
 func (r *scopedEndpointRepo) Update(context.Context, *aggregate.Endpoint) error { return nil }
 func (r *scopedEndpointRepo) Delete(context.Context, uint, *uint) error         { return nil }
 func (r *scopedEndpointRepo) DeleteCascade(context.Context, uint, *uint) error  { return nil }

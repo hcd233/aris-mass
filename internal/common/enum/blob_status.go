@@ -15,4 +15,6 @@ const (
 	BlobStatusFailed BlobStatus = "failed"
 	// BlobStatusUnprocessable 无法解码且超过存储上限，原始字节保留在 blobs.data，不上传
 	BlobStatusUnprocessable BlobStatus = "unprocessable"
+	// BlobStatusDeleting 已确认无消息引用，等待对象删除成功后移除记录
+	BlobStatusDeleting BlobStatus = "deleting"
 )

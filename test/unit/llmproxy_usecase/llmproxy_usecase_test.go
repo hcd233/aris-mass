@@ -6,20 +6,24 @@ import (
 	"strings"
 	"testing"
 
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+
 	"github.com/hcd233/aris-mass/internal/application/llmproxy/usecase"
+	"github.com/hcd233/aris-mass/internal/common/constant"
 	"github.com/hcd233/aris-mass/internal/common/enum"
 	"github.com/hcd233/aris-mass/internal/domain/llmproxy"
+	"github.com/hcd233/aris-mass/internal/domain/llmproxy/aggregate"
 	"github.com/hcd233/aris-mass/internal/domain/llmproxy/service"
 	"github.com/hcd233/aris-mass/internal/domain/llmproxy/vo"
 	"github.com/hcd233/aris-mass/internal/dto"
+	dbmodel "github.com/hcd233/aris-mass/internal/infrastructure/database/model"
+	"github.com/hcd233/aris-mass/internal/infrastructure/repository"
 )
 
 type mockReadRepo struct {
 	listAliasesResult []*llmproxy.ModelAliasProjection
 	listAliasesErr    error
-	findResult        *llmproxy.EndpointProjection
-	findModelResult   *llmproxy.ModelAliasProjection
-	findErr           error
 }
 
 func newMockReadRepo(aliases []string) *mockReadRepo {
@@ -38,16 +42,6 @@ func (r *mockReadRepo) ListAliases(_ context.Context, _ uint) ([]*llmproxy.Model
 
 func (r *mockReadRepo) ListEnabledModelDetails(_ context.Context, _ uint) ([]*llmproxy.ModelDetailProjection, error) {
 	return nil, nil
-}
-
-func (r *mockReadRepo) FindEndpointByAlias(_ context.Context, _ uint, _ string, matcher func(*llmproxy.EndpointProjection) bool) (*llmproxy.EndpointProjection, *llmproxy.ModelAliasProjection, error) {
-	if r.findErr != nil || r.findResult == nil {
-		return r.findResult, r.findModelResult, r.findErr
-	}
-	if matcher != nil && !matcher(r.findResult) {
-		return nil, nil, nil
-	}
-	return r.findResult, r.findModelResult, nil
 }
 
 type mockAnthropicProxy struct {
@@ -175,13 +169,8 @@ func TestListModels_Pagination(t *testing.T) {
 
 func TestCountTokens_ModelNotFound(t *testing.T) {
 	t.Parallel()
-	repo := &mockReadRepo{
-		findResult:      nil,
-		findModelResult: nil,
-		findErr:         nil,
-	}
 	proxy := &mockAnthropicProxy{}
-	query := usecase.NewCountTokens(repo, proxy, nil)
+	query := usecase.NewCountTokens(&multiCandidateResolver{}, proxy, nil)
 
 	req := &dto.AnthropicCountTokensRequest{
 		Body: &dto.AnthropicCountTokensReq{
@@ -189,7 +178,8 @@ func TestCountTokens_ModelNotFound(t *testing.T) {
 		},
 	}
 
-	rsp, err := query.Handle(context.Background(), req)
+	ctx := context.WithValue(t.Context(), constant.CtxKeyUserID, uint(1))
+	rsp, err := query.Handle(ctx, req)
 	if err != nil {
 		t.Fatalf("Handle() error: %v", err)
 	}
@@ -198,6 +188,65 @@ func TestCountTokens_ModelNotFound(t *testing.T) {
 	}
 	if proxy.forwardCountTokensCalled {
 		t.Error("ForwardCountTokens should not be called when model not found")
+	}
+}
+
+func TestCountTokensFollowsOwnEndpointPriority(t *testing.T) {
+	t.Parallel()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	conn, err := db.DB()
+	if err != nil {
+		t.Fatalf("get sqlite connection: %v", err)
+	}
+	conn.SetMaxOpenConns(1)
+	t.Cleanup(func() {
+		if err := conn.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := db.AutoMigrate(&dbmodel.Endpoint{}, &dbmodel.Model{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	const userID uint = 42
+	const alias = "claude"
+	primary := dbmodel.Endpoint{
+		UserID: userID, Name: "primary", AnthropicBaseURL: "https://primary.example.com",
+		APIKey: "test-primary", SupportAnthropicMessage: true,
+	}
+	secondary := dbmodel.Endpoint{
+		UserID: userID, Name: "secondary", AnthropicBaseURL: "https://secondary.example.com",
+		APIKey: "test-secondary", SupportAnthropicMessage: true,
+	}
+	for _, endpoint := range []*dbmodel.Endpoint{&primary, &secondary} {
+		if err := db.Create(endpoint).Error; err != nil {
+			t.Fatalf("create endpoint: %v", err)
+		}
+	}
+	for _, model := range []dbmodel.Model{
+		{UserID: userID, Alias: alias, EndpointID: primary.ID, UpstreamModel: "primary-model", Enabled: true, Priority: 1},
+		{UserID: userID, Alias: alias, EndpointID: secondary.ID, UpstreamModel: "secondary-model", Enabled: true, Priority: 2},
+	} {
+		if err := db.Create(&model).Error; err != nil {
+			t.Fatalf("create model: %v", err)
+		}
+	}
+	proxy := &mockAnthropicProxy{forwardCountTokensResult: &dto.AnthropicTokensCount{InputTokens: 10}}
+	resolver := service.NewEndpointResolver(repository.NewEndpointRepository(db), repository.NewModelRepository(db), false, nil)
+	query := usecase.NewCountTokens(resolver, proxy, nil)
+	ctx := context.WithValue(t.Context(), constant.CtxKeyUserID, userID)
+	req := &dto.AnthropicCountTokensRequest{Body: &dto.AnthropicCountTokensReq{Model: alias}}
+
+	for range 24 {
+		rsp, err := query.Handle(ctx, req)
+		if err != nil || rsp == nil || rsp.InputTokens != 10 {
+			t.Fatalf("Handle() = (%+v, %v), want 10 tokens", rsp, err)
+		}
+		if got := proxy.lastEndpoint; got.Model != "primary-model" || got.APIKey != primary.APIKey {
+			t.Fatalf("resolved model = %q, want primary model and its credential", got.Model)
+		}
 	}
 }
 
@@ -214,24 +263,24 @@ func (p *stubTokenProvider) GetAccessToken(_ context.Context, endpointID uint) (
 
 func (p *stubTokenProvider) RefreshIfNeeded(_ context.Context, _ uint) error { return nil }
 
-// TestCountTokens_OAuthEndpointUsesAccessToken 锁定 OAuth 端点必须注入 access token。
-// 回归：旧实现直接拿投影里的空 APIKey 拼 UpstreamEndpoint，请求上游必然 401，token 计数静默变 0。
+// TestCountTokens_OAuthEndpointUsesAccessToken 守护 OAuth 端点计数使用 access token。
 func TestCountTokens_OAuthEndpointUsesAccessToken(t *testing.T) {
 	t.Parallel()
 	tokens := &stubTokenProvider{access: service.OAuthAccess{Token: "oauth-access-token", AccountRef: "account-1"}}
-	repo := &mockReadRepo{
-		findResult: &llmproxy.EndpointProjection{
-			ID:                      7,
-			AuthType:                enum.EndpointAuthOAuthAnthropic,
-			AnthropicBaseURL:        "https://api.anthropic.com",
-			SupportAnthropicMessage: true,
-		},
-		findModelResult: &llmproxy.ModelAliasProjection{Alias: "claude-upstream"},
+	ep, err := aggregate.CreateEndpoint(7, "oauth", "", "https://api.anthropic.com", "", false, false, true, false, enum.EndpointAuthOAuthAnthropic)
+	if err != nil {
+		t.Fatal(err)
 	}
+	m, err := aggregate.CreateModel(1, "claude", "claude-upstream", 7, true, 0, 0, []enum.InputModality{enum.InputModalityText})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := &multiCandidateResolver{cands: []service.Candidate{{Endpoint: ep, Model: m}}}
 	proxy := &mockAnthropicProxy{forwardCountTokensResult: &dto.AnthropicTokensCount{InputTokens: 42}}
-	query := usecase.NewCountTokens(repo, proxy, tokens)
+	query := usecase.NewCountTokens(resolver, proxy, tokens)
 
-	rsp, err := query.Handle(context.Background(), &dto.AnthropicCountTokensRequest{
+	ctx := context.WithValue(t.Context(), constant.CtxKeyUserID, uint(1))
+	rsp, err := query.Handle(ctx, &dto.AnthropicCountTokensRequest{
 		Body: &dto.AnthropicCountTokensReq{Model: "claude"},
 	})
 	if err != nil {

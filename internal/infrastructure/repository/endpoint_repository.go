@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
 	"slices"
 
 	"github.com/samber/lo"
 	"github.com/samber/mo"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/hcd233/aris-mass/internal/common/constant"
 	"github.com/hcd233/aris-mass/internal/common/enum"
@@ -37,7 +37,7 @@ func NewEndpointRepository(db *gorm.DB) llmproxy.EndpointRepository {
 
 // NewCachedEndpointRepository 构造带读缓存失效钩子的 EndpointRepository
 //
-// 写路径（Create/Update/Delete/DeleteCascade）成功后清空读缓存，
+// 写路径成功后清空读缓存，
 // 保证读缓存不残留脏数据。
 func NewCachedEndpointRepository(db *gorm.DB, readCache *cache.ReadCache) llmproxy.EndpointRepository {
 	return &endpointRepository{endpointDAO: dao.GetEndpointDAO(), modelDAO: dao.GetModelDAO(), db: db, cache: readCache}
@@ -180,9 +180,41 @@ func (r *endpointRepository) Create(ctx context.Context, ep *aggregate.Endpoint,
 	return m.ID, nil
 }
 
-// Update 更新端点（仅更新非零值字段）
+// Update 写入端点的连接配置和可见性。
 func (r *endpointRepository) Update(ctx context.Context, ep *aggregate.Endpoint) error {
-	db := r.db.WithContext(ctx)
+	if err := updateEndpoint(r.db.WithContext(ctx), ep, true); err != nil {
+		return err
+	}
+	r.cache.InvalidateAll(ctx)
+	return nil
+}
+
+// Patch 把权限校验和写入绑定在同一个锁定的端点版本上。
+func (r *endpointRepository) Patch(ctx context.Context, id uint, scopeUserID *uint, updateVisibility bool, mutate func(*aggregate.Endpoint) error) error {
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		db := scopedDB(tx, scopeUserID).Where(constant.WhereIDEquals, id).
+			Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate})
+		record, err := r.endpointDAO.Get(db, &dbmodel.Endpoint{}, constant.EndpointRepoFieldsFull)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ierr.New(ierr.ErrDataNotExists, "endpoint not found")
+		}
+		if err != nil {
+			return ierr.Wrap(ierr.ErrDBQuery, err, "find endpoint for patch")
+		}
+		ep := toEndpointAggregate(record)
+		if err := mutate(ep); err != nil {
+			return err
+		}
+		return updateEndpoint(scopedDB(tx, scopeUserID), ep, updateVisibility)
+	})
+	if err != nil {
+		return err
+	}
+	r.cache.InvalidateAll(ctx)
+	return nil
+}
+
+func updateEndpoint(db *gorm.DB, ep *aggregate.Endpoint, updateVisibility bool) error {
 	updates := map[string]any{
 		constant.FieldEndpointName:                        ep.Name(),
 		constant.FieldEndpointOpenaiBaseURL:               ep.OpenaiBaseURL(),
@@ -192,12 +224,13 @@ func (r *endpointRepository) Update(ctx context.Context, ep *aggregate.Endpoint)
 		constant.FieldEndpointSupportOpenAIResponse:       ep.SupportOpenAIResponse(),
 		constant.FieldEndpointSupportAnthropicMessage:     ep.SupportAnthropicMessage(),
 		constant.FieldEndpointSupportOpenAIDecision:       ep.SupportOpenAIDecision(),
-		constant.FieldEndpointVisibility:                  string(ep.Visibility()),
+	}
+	if updateVisibility {
+		updates[constant.FieldEndpointVisibility] = string(ep.Visibility())
 	}
 	if err := db.Model(&dbmodel.Endpoint{}).Where(constant.WhereIDEquals, ep.AggregateID()).Updates(updates).Error; err != nil {
 		return ierr.Wrap(ierr.ErrDBUpdate, err, "update endpoint")
 	}
-	r.cache.InvalidateAll(ctx)
 	return nil
 }
 
@@ -297,31 +330,27 @@ func (r *endpointRepository) FindIDsByScope(ctx context.Context, scopeUserID *ui
 // ==================== CQRS 读模型实现 ====================
 
 type endpointReadRepository struct {
-	endpointDAO *dao.EndpointDAO
-	modelDAO    *dao.ModelDAO
-	db          *gorm.DB
-	cache       *cache.ReadCache // nil = 不带读缓存
+	modelDAO *dao.ModelDAO
+	db       *gorm.DB
+	cache    *cache.ReadCache // nil = 不带读缓存
 }
 
 // NewEndpointReadRepository 构造 EndpointReadRepository
 func NewEndpointReadRepository(db *gorm.DB) llmproxy.EndpointReadRepository {
 	return &endpointReadRepository{
-		endpointDAO: dao.GetEndpointDAO(),
-		modelDAO:    dao.GetModelDAO(),
-		db:          db,
+		modelDAO: dao.GetModelDAO(),
+		db:       db,
 	}
 }
 
 // NewCachedEndpointReadRepository 构造带 Redis 读缓存的 EndpointReadRepository
 //
-// 缓存只覆盖无凭据载荷（别名列表、模型详情列表）；FindEndpointByAlias 的投影
-// 含上游 API Key，按项目约定不写入 Redis。
+// 缓存覆盖无凭据的模型别名和详情列表。
 func NewCachedEndpointReadRepository(db *gorm.DB, readCache *cache.ReadCache) llmproxy.EndpointReadRepository {
 	return &endpointReadRepository{
-		endpointDAO: dao.GetEndpointDAO(),
-		modelDAO:    dao.GetModelDAO(),
-		db:          db,
-		cache:       readCache,
+		modelDAO: dao.GetModelDAO(),
+		db:       db,
+		cache:    readCache,
 	}
 }
 
@@ -429,53 +458,6 @@ func (r *endpointReadRepository) loadModelDetails(ctx context.Context, userID ui
 		return mo.None[[]*llmproxy.ModelDetailProjection](), nil
 	}
 	return mo.Some(out), nil
-}
-
-// FindEndpointByAlias 按 alias 在指定用户的模型集合内随机选满足 matcher 的 endpoint。
-// 仅查询已启用的模型；userID=0（认证缺失）防御性返回空。
-func (r *endpointReadRepository) FindEndpointByAlias(ctx context.Context, userID uint, alias string, matcher func(*llmproxy.EndpointProjection) bool) (*llmproxy.EndpointProjection, *llmproxy.ModelAliasProjection, error) {
-	if userID == 0 {
-		return nil, nil, nil
-	}
-	db := r.visibleModelsDB(ctx, userID)
-	models, err := r.modelDAO.BatchGet(db, &dbmodel.Model{Alias: alias, Enabled: true}, constant.ModelRepoFieldsFull)
-	if err != nil {
-		return nil, nil, ierr.Wrap(ierr.ErrDBQuery, err, "find models by alias")
-	}
-	if len(models) == 0 {
-		return nil, nil, nil
-	}
-	for _, idx := range rand.Perm(len(models)) {
-		m := models[idx]
-		// 端点查询必须用全新 session：db 已带上 models 表的并集条件（endpoint_id 列），
-		// 沿用到 endpoints 表会拼出非法 SQL。
-		ep, getErr := r.endpointDAO.Get(r.db.WithContext(ctx), &dbmodel.Endpoint{ID: m.EndpointID}, constant.EndpointRepoFieldsFull)
-		if getErr != nil {
-			if errors.Is(getErr, gorm.ErrRecordNotFound) {
-				continue
-			}
-			return nil, nil, ierr.Wrap(ierr.ErrDBQuery, getErr, "find endpoint by id")
-		}
-		proj := toEndpointProjection(ep)
-		if matcher == nil || matcher(proj) {
-			return proj, &llmproxy.ModelAliasProjection{Alias: m.UpstreamModel}, nil
-		}
-	}
-	return nil, nil, nil
-}
-
-func toEndpointProjection(ep *dbmodel.Endpoint) *llmproxy.EndpointProjection {
-	return &llmproxy.EndpointProjection{
-		ID:                          ep.ID,
-		Name:                        ep.Name,
-		AuthType:                    enum.EndpointAuthType(ep.AuthType),
-		OpenaiBaseURL:               ep.OpenaiBaseURL,
-		AnthropicBaseURL:            ep.AnthropicBaseURL,
-		APIKey:                      ep.APIKey,
-		SupportOpenAIChatCompletion: ep.SupportOpenAIChatCompletion,
-		SupportOpenAIResponse:       ep.SupportOpenAIResponse,
-		SupportAnthropicMessage:     ep.SupportAnthropicMessage,
-	}
 }
 
 // CreateWithOAuthCredential 在单事务内创建 OAuth 端点与其凭据（llmproxy.OAuthEndpointRepository）。

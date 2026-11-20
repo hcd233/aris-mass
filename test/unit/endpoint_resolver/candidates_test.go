@@ -71,6 +71,10 @@ func (r *multiEndpointRepo) BatchFindByIDs(_ context.Context, ids []uint) (map[u
 func (r *multiEndpointRepo) Create(context.Context, *aggregate.Endpoint, uint) (uint, error) {
 	return 0, nil
 }
+func (r *multiEndpointRepo) Patch(context.Context, uint, *uint, bool, func(*aggregate.Endpoint) error) error {
+	return nil
+}
+
 func (r *multiEndpointRepo) Update(context.Context, *aggregate.Endpoint) error { return nil }
 func (r *multiEndpointRepo) Delete(context.Context, uint, *uint) error         { return nil }
 func (r *multiEndpointRepo) DeleteCascade(context.Context, uint, *uint) error  { return nil }

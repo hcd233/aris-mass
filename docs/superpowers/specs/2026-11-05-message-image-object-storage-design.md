@@ -58,9 +58,10 @@
 |---|---|---|
 | `id` | bigserial | 主键 |
 | `sha256` | char(64) | **原始字节**（上游实际收到的 base64 解码后字节）的 SHA256，hex 小写，唯一索引 |
-| `status` | varchar | `pending` / `uploaded` / `failed` / `unprocessable`，见 3.2 |
+| `status` | varchar | `pending` / `uploaded` / `failed` / `unprocessable` / `deleting`，见 3.2 和第 15 节 |
 | `data` | bytea, nullable | 未上传时暂存的图片字节；`uploaded` 后置 NULL |
-| `storage_key` | varchar | 对象 key，如 `images/ab/cd/<sha256>.jpg`，不含域名和 bucket；写行时即确定 |
+| `storage_key` | varchar | 对象 key，如 `images/ab/cd/<sha256>.jpg`，不含域名和 bucket；在 PUT 前持久化 |
+| `object_may_exist` | boolean | PUT 之前持久化的上传意图，清理时也识别存量 `uploaded` 行 |
 | `mime` | varchar | 存储版本的 MIME，按字节内容判定（见第 4 节），不信任客户端声明 |
 | `size` | bigint | 存储版本的字节数 |
 | `width` / `height` | int | 存储版本的像素尺寸，无法解码时为 0 |
@@ -68,9 +69,10 @@
 | `attempts` | int | 上传尝试次数 |
 | `last_error` | varchar | 最近一次上传失败原因（截断保存，不含凭据） |
 | `next_retry_at` | timestamptz | 下次重试时间，`pending` 时有效，与 `status` 建复合索引 |
+| `purge_at` | timestamptz, nullable | 清理候选最早可处理时间，带索引 |
 | `created_at` / `updated_at` | timestamptz | |
 
-`data` 存二进制字节，不存 base64 文本：同样的图会小约 25%，读出时再按需编码。表只追加、改状态，不删行，不用软删。
+`data` 存二进制字节，读出时按需编码。清理任务确认没有消息引用且完成对象删除后，硬删对应行。
 
 ### 3.2 状态机
 
@@ -86,7 +88,7 @@ unprocessable：无法解码、且原始字节 > 2MB 的图片。按"只存 ≤2
                原始字节保留在 data 中，不参与重试。前端照常可看，导出照常内联。
 ```
 
-**不变式**：`status = uploaded` ⇔ 对象存储中已有 `storage_key` 的对象，且 `data IS NULL`；其余状态 `data IS NOT NULL`。
+**不变式**：`uploaded` 行的 `storage_key` 指向已上传对象，且 `data IS NULL`。其他可引用状态保留图片字节。`deleting` 行记录待处理的对象删除。
 
 状态写入规则：
 - 只有在 PUT 成功**之后**，才能把状态改为 `uploaded` 并清空 `data`，两者放在同一条 UPDATE 中。
@@ -309,3 +311,13 @@ Redis 里的 message 内容缓存（TTL 60 分钟）不需要主动失效：迁�
 5. **unprocessable 不作预览**：图片接口对 `unprocessable` 行只返回元数据，不返回 dataUrl（原图可能远超 2MB），前端显示"图片过大，无法预览"；导出照常内联。
 6. **audio 目录与旧对象存储删除**：OAuth 新用户注册时创建空 `audio/<userID>/` 目录是项目模板遗留，`ObjDAO` 的读写接口无调用方，且建目录失败会让登录失败。已删除 `internal/infrastructure/storage`、`AudioDirCreator`、`object bucket create` 命令、COS/MinIO 配置项与 `cos-go-sdk-v5` 依赖。新 objectstore 改为进程内单例 `objectstore.Default()`，fx、cron、CLI 共用。配置键改为点号风格（`object.storage.access.key` 等），环境变量名不变。
 7. 其他：`TruncateError` 按字符截断；`s3Store.Get` 限读 2MB+1 字节；通用常量从 `constant/blob.go` 归位到 `sql.go`/`database.go`/`http.go`/`string.go`；格式预览占位文案改为英文 `<omitted N KB>`。
+
+## 15. 2026-11-20 图片持久化与清理修订
+
+第 14 节的图片上传池和生命周期规则更新如下。
+
+- 先按 SHA256 将原图写成 `pending` 行，再生成消息引用。写入失败时保留 data URI。上传池队列存放 blob ID，worker 异步读取、压缩和上传；队列满、进程退出或被强杀后，到期的 `pending` 行由重试任务接手。CLI 迁移共用持久化与上传流程，在当前协程同步处理压缩和上传。
+- PUT 前持久化实际对象 key。上传完成后更新状态与存储元数据，同时清空暂存字节。未配置对象存储或 PUT 失败时保留可处理的压缩版；仍超限的图片进入 `unprocessable`。超过 2 MB 的待处理原图预览只返回元数据。
+- 新图初次落库时设置一小时后的 `purge_at`，消息写入中断时仍可回收。软删任务在硬删消息的同一事务设置候选图片的 `purge_at`。已过一小时创建保护期的图片当轮到期，其余延后一小时。每轮按批处理到期候选，包括没有新增软删会话的轮次。
+- 在线和迁移写入在消息事务内持有新引用的行锁。清理任务拿到排他锁后复查全部消息，含软删行。没有引用的图片先提交为 `deleting`，再删对象和记录；对象删除失败或对象存储未配置时保留候选，后续任务继续处理。消息落库发现图片已经进入 `deleting` 或被清理时，保留原 data URI。
+- 部署前执行数据库迁移，为 `blobs` 增加 `purge_at` 列及索引，并增加 `object_may_exist` 列。

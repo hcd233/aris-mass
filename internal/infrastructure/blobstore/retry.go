@@ -48,7 +48,12 @@ func RetryUploads(ctx context.Context, db *gorm.DB, store blob.ObjectStore, now 
 		return stats, ierr.Wrap(ierr.ErrDBQuery, err, "list due blob retries")
 	}
 	for _, id := range ids {
-		if retryOne(ctx, db, store, id, now) {
+		status, processErr := processPending(ctx, db, store, id, now)
+		if processErr != nil {
+			logger.WithCtx(ctx).Error("[BlobRetry] Failed to process blob", zap.Uint("id", id), zap.Error(processErr))
+			continue
+		}
+		if status == enum.BlobStatusUploaded {
 			stats.Uploaded++
 		}
 	}
@@ -61,63 +66,88 @@ func RetryUploads(ctx context.Context, db *gorm.DB, store blob.ObjectStore, now 
 	return stats, nil
 }
 
-// retryOne 补传一行；返回是否上传成功
-func retryOne(ctx context.Context, db *gorm.DB, store blob.ObjectStore, id uint, now time.Time) bool {
-	log := logger.WithCtx(ctx)
+// processPending 处理新上传或到期重试，原图已在数据库中。
+func processPending(ctx context.Context, db *gorm.DB, store blob.ObjectStore, id uint, now time.Time) (enum.BlobStatus, error) {
 	blobDAO := dao.GetBlobDAO()
 	row, err := blobDAO.GetByID(db, id)
-	if err != nil || row == nil {
-		log.Error("[BlobRetry] Failed to load blob", zap.Uint("id", id), zap.Error(err))
-		return false
+	if err != nil {
+		return enum.BlobStatusPending, ierr.Wrap(ierr.ErrDBQuery, err, "load pending blob")
 	}
-	if len(row.Data) == 0 {
-		recordFailure(ctx, db, row, ierr.New(ierr.ErrInternal, "blob data missing"), now)
-		return false
+	if row == nil || row.Status != enum.BlobStatusPending || row.NextRetryAt == nil || row.NextRetryAt.After(now) {
+		return enum.BlobStatusPending, nil
 	}
 	res := Compress(row.Data)
-	if res.Unprocessable {
-		log.Warn("[BlobRetry] Blob cannot be compressed under limit, marked unprocessable", zap.Uint("id", id))
-		if err := blobDAO.MarkUnprocessable(db, id); err != nil {
-			log.Error("[BlobRetry] Failed to mark blob unprocessable", zap.Uint("id", id), zap.Error(err))
+	if store != nil && len(row.Data) > 0 && !res.Unprocessable {
+		// PUT 成功但状态写入失败时，清理任务仍能找到实际对象。
+		key := StorageKey(row.SHA256, res.Mime)
+		if key != row.StorageKey || !row.ObjectMayExist {
+			if err := blobDAO.ReserveUploadKey(db, id, row.StorageKey, key); err != nil {
+				return enum.BlobStatusPending, ierr.Wrap(ierr.ErrDBUpdate, err, "reserve blob storage key")
+			}
 		}
-		return false
+	}
+	status := enum.BlobStatusPending
+	err = db.Transaction(func(tx *gorm.DB) error {
+		// 允许消息持 KEY SHARE 同时写入，阻止重试与删除同一对象并行。
+		current, lockErr := blobDAO.LockMetaByID(tx, id, constant.DBLockStrengthNoKeyUpdate)
+		if lockErr != nil {
+			return lockErr
+		}
+		if current == nil || current.Status != enum.BlobStatusPending || !current.UpdatedAt.Equal(row.UpdatedAt) {
+			return nil
+		}
+		status, lockErr = finishUpload(ctx, tx, store, current, res, now)
+		return lockErr
+	})
+	if err != nil {
+		return enum.BlobStatusPending, ierr.Wrap(ierr.ErrDBUpdate, err, "finish blob upload")
+	}
+	return status, nil
+}
+
+func finishUpload(ctx context.Context, tx *gorm.DB, store blob.ObjectStore, row *dbmodel.Blob, res CompressResult, now time.Time) (enum.BlobStatus, error) {
+	blobDAO := dao.GetBlobDAO()
+	if len(res.Data) == 0 {
+		return recordFailure(ctx, tx, row, ierr.New(ierr.ErrInternal, "blob data missing"), now)
+	}
+	if res.Unprocessable {
+		logger.WithCtx(ctx).Warn("[BlobRetry] Blob cannot be compressed under limit, marked unprocessable", zap.Uint("id", row.ID))
+		return enum.BlobStatusUnprocessable, blobDAO.MarkUnprocessable(tx, row.ID)
 	}
 	meta := dao.BlobUploadedMeta{
-		StorageKey: StorageKey(row.SHA256, res.Mime),
+		StorageKey: row.StorageKey,
 		Mime:       res.Mime,
 		Size:       int64(len(res.Data)),
 		Width:      res.Width,
 		Height:     res.Height,
 	}
+	if store == nil {
+		return enum.BlobStatusPending, blobDAO.SavePendingVersion(tx, row.ID, meta, res.Data)
+	}
+	if !row.ObjectMayExist || row.StorageKey == "" {
+		return enum.BlobStatusPending, ierr.New(ierr.ErrInternal, "blob upload intent missing")
+	}
 	putCtx, cancel := context.WithTimeout(ctx, constant.BlobPutTimeout)
-	putErr := store.Put(putCtx, meta.StorageKey, meta.Mime, res.Data)
-	cancel()
-	if putErr != nil {
-		recordFailure(ctx, db, row, putErr, now)
-		return false
+	defer cancel()
+	if err := store.Put(putCtx, row.StorageKey, res.Mime, res.Data); err != nil {
+		if saveErr := blobDAO.SavePendingVersion(tx, row.ID, meta, res.Data); saveErr != nil {
+			return enum.BlobStatusPending, saveErr
+		}
+		return recordFailure(ctx, tx, row, err, now)
 	}
-	if err := blobDAO.MarkUploaded(db, id, meta); err != nil {
-		log.Error("[BlobRetry] Failed to mark blob uploaded", zap.Uint("id", id), zap.Error(err))
-		return false
-	}
-	return true
+	return enum.BlobStatusUploaded, blobDAO.MarkUploaded(tx, row.ID, meta)
 }
 
 // recordFailure 按退避推后重试；达到上限转 failed
-func recordFailure(ctx context.Context, db *gorm.DB, row *dbmodel.Blob, cause error, now time.Time) {
+func recordFailure(ctx context.Context, db *gorm.DB, row *dbmodel.Blob, cause error, now time.Time) (enum.BlobStatus, error) {
 	log := logger.WithCtx(ctx)
 	attempts := row.Attempts + 1
 	lastError := TruncateError(cause)
 	if attempts >= constant.BlobRetryMaxAttempts {
 		log.Error("[BlobRetry] Blob upload exhausted retries", zap.Uint("id", row.ID), zap.Int("attempts", attempts), zap.Error(cause))
-		if err := dao.GetBlobDAO().MarkFailed(db, row.ID, attempts, lastError); err != nil {
-			log.Error("[BlobRetry] Failed to mark blob failed", zap.Uint("id", row.ID), zap.Error(err))
-		}
-		return
+		return enum.BlobStatusFailed, dao.GetBlobDAO().MarkFailed(db, row.ID, attempts, lastError)
 	}
 	backoff := constant.BlobRetryBackoff[min(attempts-1, len(constant.BlobRetryBackoff)-1)]
 	log.Warn("[BlobRetry] Blob upload failed, will retry", zap.Uint("id", row.ID), zap.Int("attempts", attempts), zap.Error(cause))
-	if err := dao.GetBlobDAO().MarkRetry(db, row.ID, attempts, lastError, now.Add(backoff)); err != nil {
-		log.Error("[BlobRetry] Failed to record blob retry", zap.Uint("id", row.ID), zap.Error(err))
-	}
+	return enum.BlobStatusPending, dao.GetBlobDAO().MarkRetry(db, row.ID, attempts, lastError, now.Add(backoff))
 }

@@ -124,7 +124,7 @@ KPI 行、可靠性面板和延迟面板共用一份「总量 + 时间桶」数�
   - `tz` 先用 `time.LoadLocation` 校验，非法值返回 422，校验通过后以绑定参数传给 `AT TIME ZONE ?`。
   - `dimension` 用 enum 白名单（huma `enum` 标签）。
   - `limit` 限制在 1–10。
-- 读路径沿用 `readCacheKey` + `cachedSlice` 读缓存，缓存键包含 scope、时间桶、粒度、维度；harness 相关的缓存键带规则指纹。
+- 读路径沿用 `readCacheKey` 和秒级读缓存。缓存键使用与 SQL 一致的完整起止时间（统一转为 UTC），并包含 scope、粒度及维度等查询参数。harness 相关的缓存键带规则指纹。
 - `overview` 的本期与上一周期（各含 summary 和 series，共 4 条 SQL）在服务端用 errgroup 并发查询。
 - `user` / `apikey` 维度的名称通过现有 `BatchGetRelations` 回填，不在 SQL 里 join 业务表。
 - DTO 遵守 `huma-dto-conventions` skill 与 `docs/agents/go-backend.md` 的约定（不允许 any，不导入 dbmodel，字段写全 doc 标签）。

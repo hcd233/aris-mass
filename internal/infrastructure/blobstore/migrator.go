@@ -149,26 +149,38 @@ func (m *Migrator) migrateRow(ctx context.Context, db *gorm.DB, id uint, dryRun 
 	if out[0] == &msg {
 		return
 	}
-	payload, err := sonic.MarshalString(out[0])
-	if err != nil {
-		log.Error("[BlobMigrate] Failed to marshal message", zap.Uint("id", id), zap.Error(err))
-		return
+	migrated := false
+	update := func(keepChecksum bool) error {
+		return db.Transaction(func(tx *gorm.DB) error {
+			secured, err := LockAvailableImageRefs(tx, []*vo.UnifiedMessage{&msg}, out)
+			if err != nil || secured[0] == &msg {
+				return err
+			}
+			payload, err := sonic.MarshalString(secured[0])
+			if err != nil {
+				return err
+			}
+			updates := map[string]any{constant.FieldMessage: payload, constant.FieldUpdatedAt: time.Now().UTC()}
+			if !keepChecksum && len(secured[0].ToolCalls) == 0 {
+				updates[constant.FieldCheckSum] = vo.ComputeMessageChecksum(secured[0], row.ModelID, nil)
+			}
+			result := tx.Table(constant.TableMessages).Where(constant.DBConditionWhereIDIn, []uint{id}).Updates(updates)
+			migrated = result.RowsAffected > 0
+			return result.Error
+		})
 	}
-	updates := map[string]any{constant.FieldMessage: payload, constant.FieldUpdatedAt: time.Now().UTC()}
-	if len(out[0].ToolCalls) == 0 {
-		updates[constant.FieldCheckSum] = vo.ComputeMessageChecksum(out[0], row.ModelID, nil)
-	}
-	err = db.Table(constant.TableMessages).Where(constant.DBConditionWhereIDIn, []uint{id}).Updates(updates).Error
+	err := update(false)
 	if errors.Is(err, gorm.ErrDuplicatedKey) {
-		delete(updates, constant.FieldCheckSum)
 		stats.ChecksumKept++
-		err = db.Table(constant.TableMessages).Where(constant.DBConditionWhereIDIn, []uint{id}).Updates(updates).Error
+		err = update(true)
 	}
 	if err != nil {
 		log.Error("[BlobMigrate] Failed to update message", zap.Uint("id", id), zap.Error(err))
 		return
 	}
-	stats.Migrated++
+	if migrated {
+		stats.Migrated++
+	}
 }
 
 // dataURIBytes 预估可从 message 中移走的 data URI 字节数（dry-run 用）

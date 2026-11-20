@@ -9,7 +9,9 @@ import (
 
 	"github.com/hcd233/aris-mass/internal/common/constant"
 	"github.com/hcd233/aris-mass/internal/domain/llmproxy"
+	"github.com/hcd233/aris-mass/internal/domain/llmproxy/aggregate"
 	"github.com/hcd233/aris-mass/internal/domain/llmproxy/service"
+	"github.com/hcd233/aris-mass/internal/domain/llmproxy/vo"
 	"github.com/hcd233/aris-mass/internal/dto"
 
 	proxyutil "github.com/hcd233/aris-mass/internal/application/llmproxy/util"
@@ -90,37 +92,33 @@ type CountTokens interface {
 }
 
 type countTokens struct {
-	readRepo      llmproxy.EndpointReadRepository
+	resolver      service.EndpointResolver
 	proxy         AnthropicProxyPort
 	tokenProvider service.OAuthTokenProvider
 }
 
-func NewCountTokens(readRepo llmproxy.EndpointReadRepository, proxy AnthropicProxyPort, tokenProvider service.OAuthTokenProvider) CountTokens {
-	return &countTokens{readRepo: readRepo, proxy: proxy, tokenProvider: tokenProvider}
+func NewCountTokens(resolver service.EndpointResolver, proxy AnthropicProxyPort, tokenProvider service.OAuthTokenProvider) CountTokens {
+	return &countTokens{resolver: resolver, proxy: proxy, tokenProvider: tokenProvider}
 }
 
 func (q *countTokens) Handle(ctx context.Context, req *dto.AnthropicCountTokensRequest) (*dto.AnthropicTokensCount, error) {
 	log := logger.WithCtx(ctx)
 
-	epProj, modelNameProj, err := q.readRepo.FindEndpointByAlias(ctx, util.CtxValueUint(ctx, constant.CtxKeyUserID), req.Body.Model, func(ep *llmproxy.EndpointProjection) bool {
-		return ep.SupportAnthropicMessage
-	})
+	userID := util.CtxValueUint(ctx, constant.CtxKeyUserID)
+	if userID == 0 {
+		return &dto.AnthropicTokensCount{}, nil
+	}
+	candidates, err := q.resolver.ResolveCandidates(ctx, userID, vo.EndpointAlias(req.Body.Model), (*aggregate.Endpoint).SupportAnthropicMessage)
 	if err != nil {
 		log.Warn("[AnthropicQuery] Model lookup error, returning 0", zap.String("model", req.Body.Model), zap.Error(err))
 		return &dto.AnthropicTokensCount{}, nil
 	}
-	if epProj == nil {
+	if len(candidates) == 0 {
 		log.Warn("[AnthropicQuery] Model not found, returning 0", zap.String("model", req.Body.Model))
 		return &dto.AnthropicTokensCount{}, nil
 	}
-	if !epProj.SupportAnthropicMessage {
-		log.Warn("[AnthropicQuery] Endpoint does not support messages API", zap.String("model", req.Body.Model))
-		return &dto.AnthropicTokensCount{}, nil
-	}
-
-	// 与代理链路共用端点组装：OAuth 端点在这里换 access token 并带 StableKey，
-	// 否则会拿空 API Key 请求上游（401），错误被吞后 token 计数静默变 0。
-	upstream, err := buildTransportEndpointWithCredential(ctx, modelNameProj.Alias, epProj.APIKey, epProj.AnthropicBaseURL, epProj.AuthType, epProj.ID, q.tokenProvider)
+	candidate := candidates[0]
+	upstream, err := buildTransportEndpointWithToken(ctx, candidate.Model, candidate.Endpoint, true, q.tokenProvider)
 	if err != nil {
 		log.Warn("[AnthropicQuery] Build upstream endpoint failed", zap.String("model", req.Body.Model), zap.Error(err))
 		return nil, err

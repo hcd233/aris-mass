@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/hcd233/aris-mass/internal/common/enum"
 	"github.com/hcd233/aris-mass/internal/common/model"
 	"github.com/hcd233/aris-mass/internal/domain/llmproxy/aggregate"
 	"github.com/hcd233/aris-mass/internal/domain/llmproxy/vo"
@@ -20,6 +19,8 @@ type EndpointRepository interface {
 	BatchFindByIDs(ctx context.Context, ids []uint) (map[uint]*aggregate.Endpoint, error)
 	Create(ctx context.Context, endpoint *aggregate.Endpoint, ownerUserID uint) (uint, error)
 	Update(ctx context.Context, endpoint *aggregate.Endpoint) error // 归属校验由调用方 FindByID 完成
+	// Patch 在同一事务内按归属锁定端点、调用 mutate 校验并更新；updateVisibility 为 false 时不写可见性。
+	Patch(ctx context.Context, id uint, scopeUserID *uint, updateVisibility bool, mutate func(*aggregate.Endpoint) error) error
 	Delete(ctx context.Context, id uint, scopeUserID *uint) error
 	DeleteCascade(ctx context.Context, id uint, scopeUserID *uint) error
 	List(ctx context.Context) ([]*aggregate.Endpoint, error)
@@ -141,19 +142,6 @@ type ModelDetailProjection struct {
 	Pricing         vo.Pricing
 }
 
-// EndpointProjection 端点只读投影
-type EndpointProjection struct {
-	ID                          uint
-	Name                        string
-	AuthType                    enum.EndpointAuthType
-	OpenaiBaseURL               string
-	AnthropicBaseURL            string
-	APIKey                      string
-	SupportOpenAIChatCompletion bool
-	SupportOpenAIResponse       bool
-	SupportAnthropicMessage     bool
-}
-
 // EndpointReadRepository CQRS 读模型仓储接口
 //
 // userID 语义：网关路径必传真实用户 ID；0（认证缺失）防御性返回空结果，
@@ -161,5 +149,4 @@ type EndpointProjection struct {
 type EndpointReadRepository interface {
 	ListAliases(ctx context.Context, userID uint) ([]*ModelAliasProjection, error)
 	ListEnabledModelDetails(ctx context.Context, userID uint) ([]*ModelDetailProjection, error)
-	FindEndpointByAlias(ctx context.Context, userID uint, alias string, matcher func(*EndpointProjection) bool) (*EndpointProjection, *ModelAliasProjection, error)
 }

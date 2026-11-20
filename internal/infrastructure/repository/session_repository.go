@@ -843,6 +843,7 @@ type exportSessionRow struct {
 	MessageIDs []uint    `gorm:"column:message_ids;serializer:json"`
 	ToolIDs    []uint    `gorm:"column:tool_ids;serializer:json"`
 	ModelIDs   []string  `gorm:"column:model_ids;serializer:json"`
+	OverBudget bool      `gorm:"column:over_budget"`
 }
 
 func toExportSessionRow(row exportSessionRow, _ int) *session.ExportSessionRow {
@@ -853,6 +854,7 @@ func toExportSessionRow(row exportSessionRow, _ int) *session.ExportSessionRow {
 		MessageIDs: row.MessageIDs,
 		ToolIDs:    row.ToolIDs,
 		ModelIDs:   row.ModelIDs,
+		OverBudget: row.OverBudget,
 	}
 }
 
@@ -876,26 +878,6 @@ func applyExportFilter(sql *gorm.DB, f session.ExportFilter) *gorm.DB {
 		sql = sql.Where(fmt.Sprintf(constant.DBConditionInTemplate, constant.FieldAPIKeyID), f.OwnerIDs)
 	}
 	return sql
-}
-
-// ListSessionsForExport 按筛选条件查询导出用会话行
-func (r *sessionReadRepository) ListSessionsForExport(ctx context.Context, f session.ExportFilter) ([]*session.ExportSessionRow, error) {
-	// OwnerIDs 为 nil 表示不过滤（admin 路径）；非 nil 且为空（用户名下无 Key）
-	// 短路返回空结果，防止空 owner 列表退化为全量导出（越权泄露全平台会话；
-	// 与 audit 守卫的入口短路风格统一）
-	if f.OwnerIDs != nil && len(f.OwnerIDs) == 0 {
-		return []*session.ExportSessionRow{}, nil
-	}
-	db := r.db.WithContext(ctx)
-	sql := db.Model(&dbmodel.Session{}).Select(constant.SessionExportSelect)
-	sql = applyExportFilter(sql, f)
-	sql = sql.Order(clause.OrderByColumn{Column: clause.Column{Name: constant.FieldID}, Desc: false})
-
-	var rows []exportSessionRow
-	if err := sql.Find(&rows).Error; err != nil {
-		return nil, ierr.Wrap(ierr.ErrDBQuery, err, "list sessions for export")
-	}
-	return lo.Map(rows, toExportSessionRow), nil
 }
 
 // FindSessionForExportAt 按 id 升序取筛选结果的第 offset 条（越界钳到末条）及匹配总数

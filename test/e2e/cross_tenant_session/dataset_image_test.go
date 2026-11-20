@@ -11,6 +11,8 @@ import (
 
 	"github.com/bytedance/sonic"
 
+	"github.com/hcd233/aris-mass/internal/common/enum"
+	"github.com/hcd233/aris-mass/internal/common/vo"
 	dbmodel "github.com/hcd233/aris-mass/internal/infrastructure/database/model"
 )
 
@@ -75,5 +77,40 @@ func TestDatasetExportMissingBlobStillCompletes(t *testing.T) {
 	images, done := f.exportImages(t)
 	if !done || len(images) != 1 || len(images[0]) != 2 {
 		t.Fatalf("done=%v images=%v", done, images)
+	}
+}
+
+func TestDatasetExportRejectsOversizedSessionWithoutCompletingItsLine(t *testing.T) {
+	f := newCrossTenantSessionFixture(t)
+	msg := &dbmodel.Message{CheckSum: "dataset-oversized", Message: &vo.UnifiedMessage{
+		Role: enum.RoleUser,
+		Content: &vo.UnifiedContent{Parts: []*vo.UnifiedContentPart{
+			{Type: enum.ContentPartTypeText, Text: strings.Repeat("猫", 256<<10)},
+		}},
+	}}
+	if err := f.db.Create(msg).Error; err != nil {
+		t.Fatalf("create message: %v", err)
+	}
+	refs := make([]uint, 44)
+	for i := range refs {
+		refs[i] = msg.ID
+	}
+	oversized := &dbmodel.Session{APIKeyName: sharedKeyName, APIKeyID: f.keyA.ID, MessageIDs: refs}
+	if err := f.db.Create(oversized).Error; err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	status, header, data := f.doWithHeader(t, http.MethodGet, "/api/web/v1/dataset/export", f.tokenA, "")
+	if status != http.StatusOK || header.Get("X-Total-Sessions") != "2" {
+		t.Fatalf("status=%d total=%q", status, header.Get("X-Total-Sessions"))
+	}
+	line, tail, found := strings.Cut(string(data), "\n")
+	var first exportedConversation
+	if !found || sonic.UnmarshalString(line, &first) != nil {
+		t.Fatal("expected one complete conversation before the oversized session")
+	}
+	want := "# dataset export: session " + strconv.FormatUint(uint64(oversized.ID), 10) + " exceeds size limit"
+	if tail != want {
+		t.Fatalf("expected an unterminated size error after the completed line, got %d bytes", len(tail))
 	}
 }

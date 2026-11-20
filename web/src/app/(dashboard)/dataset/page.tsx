@@ -5,13 +5,18 @@ import { Database, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
 import { usePersistentState } from "@/hooks/use-persistent-state";
-import { useRequestSeq } from "@/hooks/use-request-seq";
 import { api } from "@/lib/api-client";
 import { showErrorToast } from "@/lib/api-error-handler";
 import { buildModelFacets, randomOffset } from "@/lib/dataset";
+import {
+  collectDatasetDownload,
+  DatasetDownloadError,
+  openDatasetFile,
+  writeDatasetDownload,
+} from "@/lib/dataset-download";
 import { useT } from "@/lib/i18n";
 import { computeRange, type TimeRangeKey } from "@/lib/time-range";
-import type { DatasetFormatPreviewRsp, DatasetPreviewRsp } from "@/lib/types";
+import type { DatasetFormatPreviewRsp, DatasetPreviewRsp, DatasetRecipe } from "@/lib/types";
 import { formatInteger } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -27,9 +32,9 @@ import { ScoreHistogram } from "@/components/dataset/score-histogram";
 
 const DEFAULT_TIME_RANGE: TimeRangeKey = "30d";
 
-/** 一次加载结果连同它所属的配方，配方变化后旧结果自动失效（无需在 effect 里清空） */
-interface Keyed<T> {
-  key: string;
+/** 加载结果绑定请求对象身份，切回同样的筛选条件也要等新的响应。 */
+interface Keyed<Key, T> {
+  key: Key;
   data: T;
 }
 
@@ -65,68 +70,70 @@ export default function DatasetPage() {
   const [customEnd, setCustomEnd] = usePersistentState("dashboard.dataset.customEnd", "");
   const [view, setView] = usePersistentState<SampleView>("dashboard.dataset.view", "conversation");
 
-  const recipe = JSON.stringify([minScore, models, timeRange, customStart, customEnd]);
-  const params = useMemo(() => {
+  const params = useMemo<DatasetRecipe>(() => {
     const { startTime, endTime } = computeRange(timeRange, customStart, customEnd);
     return { minScore, modelIds: models, startTime, endTime };
   }, [minScore, models, timeRange, customStart, customEnd]);
 
-  const [preview, setPreview] = useState<Keyed<DatasetPreviewRsp> | null>(null);
-  const [cursor, setCursor] = useState<Keyed<number>>({ key: recipe, data: 0 });
-  const [sample, setSample] = useState<Keyed<DatasetFormatPreviewRsp> | null>(null);
-  const [sampleLoading, setSampleLoading] = useState(false);
+  const [preview, setPreview] = useState<Keyed<DatasetRecipe, DatasetPreviewRsp> | null>(null);
+  const [cursor, setCursor] = useState<Keyed<DatasetRecipe, number> | null>(null);
+  const offset = cursor?.key === params ? cursor.data : 0;
+  const sampleKey = useMemo(() => ({ params, offset }), [params, offset]);
+  const [sample, setSample] = useState<Keyed<
+    typeof sampleKey,
+    DatasetFormatPreviewRsp | null
+  > | null>(null);
   const [exportState, setExportState] = useState<ExportState>({ status: "idle" });
   const abortRef = useRef<AbortController | null>(null);
-  const previewGuard = useRequestSeq();
-  const sampleGuard = useRequestSeq();
 
-  const offset = cursor.key === recipe ? cursor.data : 0;
-  const currentPreview = preview?.key === recipe ? preview.data : null;
+  const currentPreview = preview?.key === params ? preview.data : null;
   const total = currentPreview?.totalSessions ?? 0;
-  const sampleKey = `${recipe}#${offset}`;
   const hasMatches = total > 0;
+  const currentSample = hasMatches && sample?.key === sampleKey ? sample : null;
 
-  /* eslint-disable react-hooks/set-state-in-effect -- 配方变化后重新拉取服务端统计与样本 */
   useEffect(() => {
-    const seq = previewGuard.begin();
-    const key = recipe;
+    let active = true;
     api
       .previewDataset(params)
       .then((rsp) => {
-        if (!previewGuard.isCurrent(seq)) return;
+        if (!active) return;
         if (rsp.error) {
           showErrorToast(rsp.error, { title: t("dataset.preview_error") });
           return;
         }
-        setPreview({ key, data: rsp });
+        setPreview({ key: params, data: rsp });
       })
       .catch((err) => {
-        if (previewGuard.isCurrent(seq)) showErrorToast(err, { title: t("dataset.preview_error") });
+        if (active) showErrorToast(err, { title: t("dataset.preview_error") });
       });
-  }, [params, recipe, previewGuard, t]);
+    return () => {
+      active = false;
+    };
+  }, [params, t]);
 
   useEffect(() => {
     if (!hasMatches) return;
-    const seq = sampleGuard.begin();
-    setSampleLoading(true);
+    let active = true;
+    const fail = (err: unknown) => {
+      if (!active) return;
+      setSample({ key: sampleKey, data: null });
+      showErrorToast(err, { title: t("dataset.sample_error") });
+    };
     api
       .previewDatasetFormat({ ...params, offset })
       .then((rsp) => {
-        if (!sampleGuard.isCurrent(seq)) return;
+        if (!active) return;
         if (rsp.error) {
-          showErrorToast(rsp.error, { title: t("dataset.sample_error") });
+          fail(rsp.error);
           return;
         }
         setSample({ key: sampleKey, data: rsp });
       })
-      .catch((err) => {
-        if (sampleGuard.isCurrent(seq)) showErrorToast(err, { title: t("dataset.sample_error") });
-      })
-      .finally(() => {
-        if (sampleGuard.isCurrent(seq)) setSampleLoading(false);
-      });
-  }, [params, offset, sampleKey, hasMatches, sampleGuard, t]);
-  /* eslint-enable react-hooks/set-state-in-effect */
+      .catch(fail);
+    return () => {
+      active = false;
+    };
+  }, [params, offset, sampleKey, hasMatches, t]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -141,54 +148,76 @@ export default function DatasetPage() {
   };
 
   const goTo = (next: number) =>
-    setCursor({ key: recipe, data: Math.min(Math.max(next, 0), total - 1) });
+    setCursor({ key: params, data: Math.min(Math.max(next, 0), total - 1) });
 
   const handleExport = async () => {
-    if (abortRef.current) return;
+    if (!hasMatches || abortRef.current) return;
     const controller = new AbortController();
+    const { signal } = controller;
+    const file = `aris-dataset-${new Date().toISOString().slice(0, 10)}.jsonl`;
     abortRef.current = controller;
     setExportState({ status: "running", done: 0, total });
+    let pendingFile: Awaited<ReturnType<typeof openDatasetFile>> = null;
     try {
-      const result = await api.exportDatasetStream(
-        params,
-        (done, all) => setExportState({ status: "running", done, total: all }),
-        controller.signal,
-      );
-      if (result.lines < result.total) {
-        throw new Error(
-          t("dataset.export_incomplete")
-            .replace("{received}", formatInteger(result.lines))
-            .replace("{total}", formatInteger(result.total)),
-        );
+      pendingFile = await openDatasetFile(file);
+      signal.throwIfAborted();
+      if (!pendingFile) toast.info(t("dataset.export_memory_notice"));
+      const result = await api.exportDatasetStream(params, signal);
+      const onProgress = (done: number, all: number) =>
+        setExportState({ status: "running", done, total: all });
+      let size: number;
+      if (pendingFile) {
+        const writer = pendingFile;
+        pendingFile = null;
+        size = await writeDatasetDownload(result.body, result.total, writer, onProgress, signal);
+      } else {
+        const blob = await collectDatasetDownload(result.body, result.total, onProgress, signal);
+        signal.throwIfAborted();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = file;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+        size = blob.size;
       }
-      const blob = new Blob(result.chunks as BlobPart[], { type: "application/x-ndjson" });
-      const file = `aris-dataset-${new Date().toISOString().slice(0, 10)}.jsonl`;
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = file;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      setExportState({ status: "done", recipe, file, size: blob.size });
+      setExportState({ status: "done", recipe: params, file, size });
       toast.success(t("dataset.export_success"));
     } catch (err) {
       setExportState({ status: "idle" });
-      if (controller.signal.aborted) {
+      if (signal.aborted || (err instanceof DOMException && err.name === "AbortError")) {
         toast(t("dataset.export_cancelled"));
+      } else if (err instanceof DatasetDownloadError) {
+        const failure = err.failure;
+        let description: string;
+        switch (failure.reason) {
+          case "memory_limit":
+            description = t("dataset.export_memory_error");
+            break;
+          case "session_too_large":
+            description = t("dataset.export_session_too_large").replace("{id}", failure.sessionId);
+            break;
+          case "incomplete":
+            description = t("dataset.export_incomplete")
+              .replace("{received}", formatInteger(failure.lines))
+              .replace("{total}", formatInteger(failure.total));
+            break;
+        }
+        showErrorToast(err, { title: t("dataset.export_error"), description });
       } else {
         showErrorToast(err, { title: t("dataset.export_error") });
       }
     } finally {
+      await pendingFile?.abort().catch(() => {});
       abortRef.current = null;
     }
   };
 
-  const facets = buildModelFacets(currentPreview?.modelFacets ?? preview?.data.modelFacets, models);
-  const histogram = currentPreview?.scoreHistogram ?? preview?.data.scoreHistogram;
+  const facets = buildModelFacets(currentPreview?.modelFacets, models);
+  const histogram = currentPreview?.scoreHistogram;
   const previewLoaded = currentPreview !== null;
-  const shownSample = hasMatches && sample ? sample.data : null;
 
   return (
     <PermissionGuard>
@@ -212,8 +241,8 @@ export default function DatasetPage() {
           />
 
           <ResultBar
-            preview={currentPreview ?? preview?.data ?? null}
-            recipe={recipe}
+            preview={currentPreview}
+            recipe={params}
             exportState={exportState}
             onExport={handleExport}
             onCancel={() => abortRef.current?.abort()}
@@ -261,8 +290,8 @@ export default function DatasetPage() {
                 </div>
               ) : (
                 <SampleInspector
-                  sample={shownSample}
-                  loading={sampleLoading || sample?.key !== sampleKey}
+                  sample={currentSample?.data ?? null}
+                  loading={currentSample === null}
                   offset={offset}
                   total={total}
                   view={view}

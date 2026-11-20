@@ -209,37 +209,26 @@ func CanSwitchEndpoint(err error) bool {
 	return false
 }
 
-// buildTransportEndpointWithToken 组装传输层端点（含 OAuth access token 注入）。
-//
-// api_key 端点行为与改造前一致；OAuth 端点取（必要时刷新）access token 并携带
-// 稳定身份 StableKey——失败返回可切换错误（*model.OAuthCredentialError），
-// 由 runWithFallback 切到备选端点。
+// buildTransportEndpointWithToken 为消息转发和 token 计数组装传输层端点。
+// OAuth 端点按需刷新 access token，并携带同一稳定身份 StableKey。
 func buildTransportEndpointWithToken(ctx context.Context, m *aggregate.Model, ep *aggregate.Endpoint, isAnthropic bool, tokens service.OAuthTokenProvider) (vo.UpstreamEndpoint, error) {
 	baseURL := ep.OpenaiBaseURL()
 	if isAnthropic {
 		baseURL = ep.AnthropicBaseURL()
 	}
-	return buildTransportEndpointWithCredential(ctx, m.UpstreamModel(), ep.APIKey(), baseURL, ep.AuthType(), ep.AggregateID(), tokens)
-}
-
-// buildTransportEndpointWithCredential 按「模型别名 + 端点凭据」组装传输层端点。
-//
-// 代理链路（聚合根）与 count_tokens（读模型投影）共用同一条组装逻辑：OAuth 端点必须在
-// 这里换 access token 并带上 StableKey，调用方各自拼参数时很容易漏掉认证类型，
-// 拿着空 API Key 去请求上游（表现为静默 401）。
-func buildTransportEndpointWithCredential(ctx context.Context, model, apiKey, baseURL string, authType enum.EndpointAuthType, endpointID uint, tokens service.OAuthTokenProvider) (vo.UpstreamEndpoint, error) {
+	authType := ep.AuthType()
 	if !authType.IsOAuth() {
-		return vo.NewUpstreamEndpointFromCredential(model, apiKey, baseURL, authType, "", ""), nil
+		return vo.NewUpstreamEndpointFromCredential(m.UpstreamModel(), ep.APIKey(), baseURL, authType, "", ""), nil
 	}
 	if tokens == nil {
 		return vo.UpstreamEndpoint{}, ierr.New(ierr.ErrInternal, "oauth token provider is not wired")
 	}
-	access, err := tokens.GetAccessToken(ctx, endpointID)
+	access, err := tokens.GetAccessToken(ctx, ep.AggregateID())
 	if err != nil {
 		return vo.UpstreamEndpoint{}, err
 	}
-	stableKey := fmt.Sprintf(constant.OAuthEndpointStableKeyTemplate, endpointID)
-	return vo.NewUpstreamEndpointFromCredential(model, access.Token, baseURL, authType, access.AccountRef, stableKey), nil
+	stableKey := fmt.Sprintf(constant.OAuthEndpointStableKeyTemplate, ep.AggregateID())
+	return vo.NewUpstreamEndpointFromCredential(m.UpstreamModel(), access.Token, baseURL, authType, access.AccountRef, stableKey), nil
 }
 
 // runWithFallback 按候选顺序转发，失败且 CanSwitchEndpoint 时切换到下一个端点。

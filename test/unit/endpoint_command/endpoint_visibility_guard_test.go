@@ -38,6 +38,13 @@ func (f *fakeEndpointRepo) Update(context.Context, *aggregate.Endpoint) error {
 	return nil
 }
 
+func (f *fakeEndpointRepo) Patch(ctx context.Context, _ uint, _ *uint, _ bool, mutate func(*aggregate.Endpoint) error) error {
+	if err := mutate(f.ep); err != nil {
+		return err
+	}
+	return f.Update(ctx, f.ep)
+}
+
 func (f *fakeEndpointRepo) Delete(context.Context, uint, *uint) error {
 	f.deleted = true
 	return nil
@@ -181,5 +188,27 @@ func TestUpdateEndpoint_OwnerCanChangeVisibility(t *testing.T) {
 	}
 	if !repo.updated {
 		t.Fatal("owner update must reach repo")
+	}
+}
+
+func TestUpdateEndpoint_NonAdminCannotSetVisibility(t *testing.T) {
+	t.Parallel()
+	ep, err := aggregate.CreateEndpoint(7, "ep", "https://o.example.com", "", "k", true, false, false, false, enum.EndpointAuthAPIKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const ownerID uint = 101
+	ep.SetUserID(ownerID)
+	repo := &fakeEndpointRepo{ep: ep}
+	handler := command.NewUpdateEndpointHandler(repo)
+
+	err = handler.Handle(t.Context(), port.UpdateEndpointCommand{
+		EndpointID:     ep.AggregateID(),
+		ScopeUserID:    lo.ToPtr(ownerID),
+		OperatorUserID: ownerID,
+		Visibility:     lo.ToPtr(enum.EndpointVisibilityPrivate),
+	})
+	if err == nil || repo.updated {
+		t.Fatal("non-admin must not write an explicit visibility field")
 	}
 }

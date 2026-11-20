@@ -4,7 +4,7 @@ import { Check, Download, X } from "lucide-react";
 
 import { useT } from "@/lib/i18n";
 import { formatBytes, formatDecimal, formatInteger } from "@/lib/utils";
-import type { DatasetPreviewRsp } from "@/lib/types";
+import type { DatasetPreviewRsp, DatasetRecipe } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -13,11 +13,11 @@ import { MetricNumber } from "@/components/motion/metric-number";
 export type ExportState =
   | { status: "idle" }
   | { status: "running"; done: number; total: number }
-  | { status: "done"; recipe: string; file: string; size: number };
+  | { status: "done"; recipe: DatasetRecipe; file: string; size: number };
 
 interface ResultBarProps {
   preview: DatasetPreviewRsp | null;
-  recipe: string;
+  recipe: DatasetRecipe;
   exportState: ExportState;
   onExport: () => void;
   onCancel: () => void;

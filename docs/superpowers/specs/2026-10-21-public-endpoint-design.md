@@ -83,11 +83,11 @@ func (v EndpointVisibility) Normalize() EndpointVisibility // "" → private
 仓储（`internal/infrastructure/repository/endpoint_repository.go`）：
 
 - `toEndpointAggregate` 恢复 `Visibility`；`toEndpointModel` 写回 `Visibility`。
-- `Update` 的 `updates` map 增加 `constant.FieldEndpointVisibility`。
+- `Patch` 在事务内锁定符合租户范围的端点行，再校验并写入。仅当请求显式传入可见性时，更新字段才包含 `constant.FieldEndpointVisibility`。
 
 ## 权限规则
 
-权限判定集中在 handler 层（两条规则），命令层只补一处降级保护：
+handler 根据操作者权限确定租户范围。更新命令校验显式可见性变更的 admin 权限，并在锁定端点后校验归属和降级保护。
 
 1. **创建**（`internal/handler/endpoint.go` → `HandleCreateEndpoint`）
    - `visibility` 缺省 = `private`。
@@ -96,12 +96,12 @@ func (v EndpointVisibility) Normalize() EndpointVisibility // "" → private
 2. **更新**（`HandleUpdateEndpoint`）
    - 非 admin 显式传 `visibility` → `ierr.ErrUnauthorized`。
    - admin 可以 public ↔ private 切换，但**只能改自己名下端点**的可见性（见下）。
-   - **未传 `visibility` = 保持原值**，不是重置为 private：聚合根由 `FindByID` 从 DB 恢复，`EndpointRepoFieldsFull` 带上新列后 `ep.Visibility()` 已是当前值；命令层只在 `cmd.Visibility != nil` 时调 `SetVisibility`，`repo.Update` 随后整体写回的仍是原值。
-   - 唯一会写 endpoint 整行的是 `Update`；额度刷新走 `UpdateQuota` 窄列更新、不会碰 visibility，因此不存在「后台任务把公开端点静默改回私有」的路径。
+   - **未传 `visibility` 时，PATCH 的 SQL 不写该列。** 租户范围、可见性权限和连接字段校验基于同一条锁定的端点记录，校验成功后在该事务中更新。
+   - 额度刷新通过 `UpdateQuota` 更新凭据额度字段。
 
 **可见性只能由归属者本人修改**（CR：只校验 admin 会留下跨租户发布漏洞）：`UpdateEndpointCommand` 带 `OperatorUserID`，命令内 `cmd.Visibility != nil && ep.UserID() != cmd.OperatorUserID` → `ierr.ErrUnauthorized`。否则 admin 可以把普通用户（或另一个 admin）名下的私有端点直接改成 public——等于替别人把上游密钥/额度共享给全平台，且归属者自己反而改不回来（会被「非 admin 不得改公开端点」拦住）。前端同步：编辑他人端点时可见性选择器禁用。
 
-**普通用户改不了公开端点**：不需要新权限分支。update / delete / OAuth reauth / quota 全部走 `FindByID(ctx, id, scope)`，非 admin 的 scope 恒为自身 userID，公开端点归属是 admin，因此一律返回「endpoint not found」（`ierr.ErrDataNotExists`）。这与现有跨租户越权行为一致，不泄漏端点是否存在。
+**普通用户改不了他人名下的公开端点**：更新通过 `Patch(scope)` 锁行时检查租户范围，删除、OAuth reauth 和 quota 使用 `FindByID(ctx, id, scope)`。非 admin 的 scope 恒为自身 userID，跨租户请求返回「endpoint not found」（`ierr.ErrDataNotExists`）。
 
 **降级保护（边界情况）**：admin 被降为 `user` 后，其名下已有的公开端点仍会被自己 scope 命中，从而可以改连接字段或删除——与「只有 admin 能维护公开端点」冲突。处理：`UpdateEndpointCommand` / `DeleteEndpointCommand` / `ReauthOAuthCommand` 增加 `IsAdmin bool`，命令内取到聚合后若 `ep.Visibility().IsPublic() && !cmd.IsAdmin` 返回 `ierr.ErrUnauthorized`。
 （备选方案「降级时把其公开端点自动转私有」需要 identity 模块反向依赖 llmproxy，跨模块耦合更贵，不采用。）
@@ -110,7 +110,8 @@ func (v EndpointVisibility) Normalize() EndpointVisibility // "" → private
 
 | 写操作 | 拦截机制 |
 |---|---|
-| endpoint update / delete | `FindByID(scope)` 拦住跨租户；可见性变更额外要求归属者本人；降级场景由 `IsAdmin` 守卫 |
+| endpoint update | `Patch(scope)` 锁定符合租户范围的端点；可见性变更要求操作者是归属者且具备 admin 权限；降级场景由 `IsAdmin` 守卫 |
+| endpoint delete | `FindByID(scope)` 拦住跨租户；降级场景由 `IsAdmin` 守卫 |
 | endpoint OAuth reauth | 同上（`ScopeUserID` + `IsAdmin`） |
 | endpoint OAuth quota probe | `FindByID(scope)` 已拦住（只读探测，不额外加 `IsAdmin`） |
 | model create（带 `endpointID`） | 目标端点 public 且 `!IsAdmin` → `ErrUnauthorized` |
@@ -171,7 +172,7 @@ for _, m := range models {
 |---|---|---|
 | `/api/openai/v1/models`、`/api/anthropic/v1/models` | LLM 客户端列模型 | `EndpointReadRepository.ListAliases`（`usecase/query.go:34`、`:66`） |
 | `/api/cli/v1/model/list` | `aris model export` 客户端配置导出 | `EndpointReadRepository.ListEnabledModelDetails` |
-| Anthropic `/v1/messages/count_tokens` | Claude Code 估算 token | `EndpointReadRepository.FindEndpointByAlias`（`usecase/query.go:104`） |
+| Anthropic `/v1/messages/count_tokens` | Claude Code 估算 token | `EndpointResolver.ResolveCandidates` 按网关顺序解析原生支持 Anthropic Messages 的候选，使用首选端点的上游模型名和凭据 |
 | Web `/upstream/list` | 管理页分组视图 | `EndpointRepository.FindIDsByScope` |
 | Web `/model/list` | 管理页平铺视图 | `ModelRepository.PaginateWithFilter` |
 | LLM 转发、playground | 实际调用 | `EndpointResolver.ResolveCandidates*`（见「解析链路」） |
@@ -195,12 +196,12 @@ for _, m := range models {
      `user_id = ? OR endpoint_id IN (SELECT id FROM endpoints WHERE visibility='public' AND deleted_at = 0)`。
    - 缓存键 `modelListCacheKey` 已经把 filter 整体序列化进签名（`internal/infrastructure/repository/read_cache.go:41`），新字段自动进键，不会与旧缓存串味。
 3. **网关模型目录**（`internal/infrastructure/repository/endpoint_repository.go` 读模型）
-   - `loadAliases` / `loadModelDetails` / `FindEndpointByAlias` 的查询从 `user_id = ?` 改为
+   - `loadAliases` / `loadModelDetails` 的查询从 `user_id = ?` 改为
      `user_id = ? OR endpoint_id IN (SELECT id FROM endpoints WHERE visibility='public' AND deleted_at = 0)`。
    - 这两处都用 `lo.UniqBy(alias)` 去重（`endpoint_repository.go:353`、`:387`），同名的 own 与 public 行、或多个 admin 的公开行只保留**最先出现**的一条。为保证「取的规格/定价」与解析结果（own 优先）一致，查询加 `ORDER BY (user_id = ?) DESC`，让 own 行排在前面。`ModelAliasProjection` / `ModelDetailProjection` 不带归属字段，因此只影响规格与定价取值，不改变对外结构。
    - 缓存键 `cache:rd:alias:<userID>` / `cache:rd:detail:<userID>` 不变；写路径已 `InvalidateAll`（含新增的 visibility 更新），不会残留。
 
-**公开条件的复用**：`visibility = 'public' AND deleted_at = 0` 会在 4 处 SQL 出现（解析 1 处 + 读模型 3 处）+ 2 处 `includePublic` 分支。在 `internal/infrastructure/repository` 里定义一个条件表达式/构造函数统一复用，禁止各处手写漂移。endpoint 表没有 enabled/status 列，公开池不需要额外过滤（模型侧 `enabled = true` 由各自查询带）。
+**公开条件的复用**：解析、模型目录和 `includePublic` 查询复用仓储定义的公开条件。endpoint 表以 `visibility = 'public' AND deleted_at = 0` 选取公开池，模型侧的 `enabled = true` 由各自查询应用。
 
 ## 接口契约
 
