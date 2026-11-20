@@ -45,7 +45,7 @@ func (c *openaiOAuthClient) Provider() enum.OAuthProvider { return enum.OAuthPro
 func (c *openaiOAuthClient) AuthorizeURL(challenge, state string) string {
 	query := url.Values{}
 	query.Set(constant.OAuthParamClientID, constant.OAuthOpenAIClientID)
-	query.Set(constant.OAuthParamResponseType, constant.OAuthParamValueAuthorizationCode)
+	query.Set(constant.OAuthParamResponseType, constant.OAuthParamValueCode)
 	query.Set(constant.OAuthParamRedirectURI, constant.OAuthOpenAIRedirectURI)
 	query.Set(constant.OAuthParamScope, constant.OAuthOpenAIScope)
 	query.Set(constant.OAuthParamCodeChallenge, challenge)

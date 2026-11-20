@@ -108,7 +108,7 @@ func (c *anthropicOAuthClient) Provider() enum.OAuthProvider { return enum.OAuth
 func (c *anthropicOAuthClient) AuthorizeURL(challenge, state string) string {
 	query := url.Values{}
 	query.Set(constant.OAuthParamClientID, constant.OAuthClaudeClientID)
-	query.Set(constant.OAuthParamResponseType, constant.OAuthParamValueAuthorizationCode)
+	query.Set(constant.OAuthParamResponseType, constant.OAuthParamValueCode)
 	query.Set(constant.OAuthParamRedirectURI, constant.OAuthClaudeRedirectURI)
 	query.Set(constant.OAuthParamScope, constant.OAuthClaudeScope)
 	query.Set(constant.OAuthParamCodeChallenge, challenge)

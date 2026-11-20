@@ -114,15 +114,23 @@ const (
 
 // OAuth 协议参数名与取值（标准 OAuth2 / PKCE）
 const (
-	OAuthParamClientID               = "client_id"
-	OAuthParamGrantType              = "grant_type"
-	OAuthParamResponseType           = "response_type"
-	OAuthParamRedirectURI            = "redirect_uri"
-	OAuthParamScope                  = "scope"
-	OAuthParamCodeChallenge          = "code_challenge"
-	OAuthParamCodeChallengeMethod    = "code_challenge_method"
-	OAuthParamCodeVerifier           = "code_verifier"
-	OAuthParamRefreshToken           = "refresh_token"
+	OAuthParamClientID            = "client_id"
+	OAuthParamGrantType           = "grant_type"
+	OAuthParamResponseType        = "response_type"
+	OAuthParamRedirectURI         = "redirect_uri"
+	OAuthParamScope               = "scope"
+	OAuthParamCodeChallenge       = "code_challenge"
+	OAuthParamCodeChallengeMethod = "code_challenge_method"
+	OAuthParamCodeVerifier        = "code_verifier"
+	OAuthParamRefreshToken        = "refresh_token"
+
+	// OAuthParamValueCode 授权请求 response_type 的取值（RFC 6749 §3.1.1：期望拿授权码）。
+	//
+	// 与 OAuthParamValueAuthorizationCode 语义不同、不可混用：后者是 token 请求
+	// grant_type 的取值。把 authorization_code 当作 response_type 发给上游会被判为
+	// unsupported_response_type 并直接拒绝授权。
+	OAuthParamValueCode = "code"
+	// OAuthParamValueAuthorizationCode token 请求 grant_type 的取值（RFC 6749 §4.1.3）
 	OAuthParamValueAuthorizationCode = "authorization_code"
 	OAuthParamValueRefreshToken      = "refresh_token"
 	OAuthParamValueS256              = "S256"
