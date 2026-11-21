@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/adapters/humafiber"
 	"github.com/samber/lo"
 	"go.uber.org/zap"
 
@@ -40,7 +41,7 @@ func PlaygroundAPIKeyMiddleware(keys PlaygroundAPIKeyFinder) func(ctx huma.Conte
 		keyID, err := strconv.ParseUint(raw, constant.DecimalBase, constant.ParseIntBitSize)
 		// keyID 必须非零：仓储 FindByID 走 GORM struct 条件，零值主键会被忽略而退化成「取第一条」
 		if err != nil || keyID == 0 {
-			log.Info("[PlaygroundAPIKeyMiddleware] Invalid apiKeyID", zap.String("idParam", raw))
+			log.Info("[PlaygroundAPIKeyMiddleware] Invalid apiKeyID", zap.Int("idParamBytes", len(raw)))
 			lo.Must0(apiutil.WriteErrorResponse(ctx.BodyWriter(), ierr.ErrValidation.BizError().Localize(i18n.FromCtx(ctx.Context()))))
 			return
 		}
@@ -58,6 +59,7 @@ func PlaygroundAPIKeyMiddleware(keys PlaygroundAPIKeyFinder) func(ctx huma.Conte
 			return
 		}
 
+		humafiber.Unwrap(ctx).Locals(constant.CtxKeyAPIKeyID, apiKey.AggregateID())
 		ctx = huma.WithValue(ctx, constant.CtxKeyAPIKeyID, apiKey.AggregateID())
 		ctx = huma.WithValue(ctx, constant.CtxKeyAPIKeyName, apiKey.Name().String())
 		ctx = huma.WithValue(ctx, constant.CtxKeyClient, ctx.Header(constant.HTTPHeaderUserAgent))

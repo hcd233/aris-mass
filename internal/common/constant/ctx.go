@@ -59,6 +59,9 @@ const (
 	//	@update 2026-10-09 10:00:00
 	CtxKeyFailureAuditDeferral enum.CtxKey = "failureAuditDeferral"
 
+	// CtxKeyEndpointAttempt 关联同一请求内依次尝试的候选端点。
+	CtxKeyEndpointAttempt enum.CtxKey = "endpointAttempt"
+
 	// CtxKeyClientIP 客户端 IP（由 InjectRequestMetaMiddleware 注入，用于 demo 访问审计）
 	CtxKeyClientIP enum.CtxKey = "clientIP"
 

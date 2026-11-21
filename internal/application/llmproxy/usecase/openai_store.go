@@ -35,7 +35,7 @@ func (u *openAIUseCase) storeOpenAIChatMessages(ctx context.Context, req *dto.Op
 
 	aiMsg, err := dto.FromOpenAIMessage(assistantMsg)
 	if err != nil {
-		log.Error("[OpenAIUseCase] Failed to convert ai response message", zap.Error(err))
+		log.Error("[OpenAIUseCase] Failed to convert ai response message", logger.ErrorFields(err)...)
 		return
 	}
 	unifiedMessages = append(unifiedMessages, aiMsg)
@@ -57,7 +57,7 @@ func (u *openAIUseCase) storeOpenAIChatMessages(ctx context.Context, req *dto.Op
 		OutputTokens: outputTokens,
 		Metadata:     req.Body.Metadata,
 	}); err != nil {
-		log.Error("[OpenAIUseCase] Failed to submit message store task", zap.Error(err))
+		log.Error("[OpenAIUseCase] Failed to submit message store task", logger.ErrorFields(err)...)
 	}
 }
 
@@ -77,7 +77,7 @@ func (u *openAIUseCase) convertRequestMessages(ctx context.Context, req *dto.Ope
 	for _, msg := range req.Body.Messages {
 		um, err := dto.FromOpenAIMessage(msg)
 		if err != nil {
-			log.Error("[OpenAIUseCase] Failed to convert openai message", zap.Error(err))
+			log.Error("[OpenAIUseCase] Failed to convert openai message", logger.ErrorFields(err)...)
 			return nil, nil, err
 		}
 		unifiedMessages = append(unifiedMessages, um)
@@ -157,7 +157,7 @@ func convertResponseOutput(rsp *dto.OpenAICreateResponseRsp) ([]*vo.UnifiedMessa
 	log := logger.Logger()
 	outputMsgs, err := dto.FromResponseAPIOutputItems(rsp.Output)
 	if err != nil {
-		log.Error("[OpenAIUseCase] Failed to convert response output items", zap.Error(err))
+		log.Error("[OpenAIUseCase] Failed to convert response output items", logger.ErrorFields(err)...)
 		return nil, false
 	}
 	if len(outputMsgs) == 0 {
@@ -193,7 +193,7 @@ func buildResponseRequestUnifiedMessages(ctx context.Context, req *dto.OpenAICre
 		if len(req.Body.Input.Items) > 0 {
 			inputMsgs, err := dto.FromResponseAPIInputItems(req.Body.Input.Items)
 			if err != nil {
-				log.Error("[OpenAIUseCase] Failed to convert response input items", zap.Error(err))
+				log.Error("[OpenAIUseCase] Failed to convert response input items", logger.ErrorFields(err)...)
 				return nil, false
 			}
 			messages = append(messages, inputMsgs...)
@@ -230,6 +230,6 @@ func submitResponseMessageStoreTask(ctx context.Context, submitter TaskSubmitter
 		OutputTokens: outputTokens,
 		Metadata:     req.Body.Metadata,
 	}); err != nil {
-		log.Error("[OpenAIUseCase] Failed to submit response message store task", zap.Error(err))
+		log.Error("[OpenAIUseCase] Failed to submit response message store task", logger.ErrorFields(err)...)
 	}
 }

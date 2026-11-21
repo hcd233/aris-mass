@@ -79,7 +79,7 @@ func (u *openAIUseCase) CreateDecision(ctx context.Context, req *dto.OpenAICreat
 		return SelectCompatRoute(enum.ProxyAPIOpenAIDecision, ep) != enum.CompatRouteUnsupported
 	})
 	if err != nil {
-		log.Error("[OpenAIUseCase] Decision API model resolve failed", zap.String("model", model), zap.Error(err))
+		log.Error("[OpenAIUseCase] Decision API model resolve failed", append(logger.ErrorFields(err), zap.String("model", model))...)
 		return nil, proxyutil.ModelResolveError(err, enum.ProtocolKindOpenAI, model)
 	}
 	ep, m := cands[0].Endpoint, cands[0].Model
@@ -148,7 +148,7 @@ func (u *openAIUseCase) forwardDecision(ctx context.Context, req *dto.OpenAICrea
 	}
 	var rsp dto.OpenAIDecisionRsp
 	if parseErr := sonic.Unmarshal(replaced, &rsp); parseErr != nil {
-		logger.WithCtx(ctx).Debug("[OpenAIUseCase] Failed to parse Decision API response body", zap.Error(parseErr))
+		logger.WithCtx(ctx).Debug("[OpenAIUseCase] Failed to parse Decision API response body", logger.ErrorFields(parseErr)...)
 	} else {
 		u.storeDecisionSession(ctx, req, &rsp, m.ModelID())
 		out.usage = decisionTokenUsage{&rsp}
@@ -173,7 +173,7 @@ func (u *openAIUseCase) CreateChatCompletion(ctx context.Context, req *dto.OpenA
 		return SelectCompatRoute(enum.ProxyAPIOpenAIChat, ep) != enum.CompatRouteUnsupported
 	})
 	if err != nil {
-		log.Error("[OpenAIUseCase] Chat model resolve failed", zap.String("model", req.Body.Model), zap.Error(err))
+		log.Error("[OpenAIUseCase] Chat model resolve failed", append(logger.ErrorFields(err), zap.String("model", req.Body.Model))...)
 		return nil, proxyutil.ModelResolveError(err, enum.ProtocolKindOpenAI, req.Body.Model)
 	}
 	ep, m := cands[0].Endpoint, cands[0].Model
@@ -257,7 +257,7 @@ func (u *openAIUseCase) CreateResponse(ctx context.Context, req *dto.OpenAICreat
 		return SelectCompatRoute(enum.ProxyAPIOpenAIResponse, ep) != enum.CompatRouteUnsupported
 	})
 	if err != nil {
-		log.Error("[OpenAIUseCase] Response API model resolve failed", zap.String("model", model), zap.Error(err))
+		log.Error("[OpenAIUseCase] Response API model resolve failed", append(logger.ErrorFields(err), zap.String("model", model))...)
 		return nil, proxyutil.ModelResolveError(err, enum.ProtocolKindOpenAI, model)
 	}
 	ep, m := cands[0].Endpoint, cands[0].Model

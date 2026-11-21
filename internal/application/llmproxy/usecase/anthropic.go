@@ -88,7 +88,7 @@ func (u *anthropicUseCase) CreateMessage(ctx context.Context, req *dto.Anthropic
 		return SelectCompatRoute(enum.ProxyAPIAnthropicMessage, ep) != enum.CompatRouteUnsupported
 	})
 	if err != nil {
-		log.Error("[AnthropicUseCase] Messages model resolve failed", zap.String("model", req.Body.Model), zap.Error(err))
+		log.Error("[AnthropicUseCase] Messages model resolve failed", append(logger.ErrorFields(err), zap.String("model", req.Body.Model))...)
 		return nil, proxyutil.ModelResolveError(err, enum.ProtocolKindAnthropic, req.Body.Model)
 	}
 	ep, m := cands[0].Endpoint, cands[0].Model

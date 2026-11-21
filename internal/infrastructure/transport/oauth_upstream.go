@@ -12,7 +12,6 @@ import (
 	"github.com/hcd233/aris-mass/internal/common/constant"
 	"github.com/hcd233/aris-mass/internal/common/enum"
 	"github.com/hcd233/aris-mass/internal/common/ierr"
-	commonutil "github.com/hcd233/aris-mass/internal/common/util"
 	"github.com/hcd233/aris-mass/internal/domain/llmproxy/vo"
 	"github.com/hcd233/aris-mass/internal/dto"
 )
@@ -221,13 +220,4 @@ func transformCodexOAuthBody(body []byte) ([]byte, error) {
 		req.Include = append(req.Include, constant.OAuthCodexReasoningEncryptedInclude)
 	}
 	return sonic.Marshal(&req)
-}
-
-// upstreamCredLabel 上游凭据的日志标签（键名避开 Key/Token 等敏感词，值经 OAuth 占位符化）：OAuth 端点的 APIKey 字段承载 access token，
-// 整体占位符化（MaskSecret 会暴露首尾各 4 字符，违背 token 不进日志的承诺）。
-func upstreamCredLabel(ep vo.UpstreamEndpoint) string {
-	if ep.AuthType.IsOAuth() {
-		return constant.MaskSecretPlaceholder
-	}
-	return commonutil.MaskSecret(ep.APIKey)
 }

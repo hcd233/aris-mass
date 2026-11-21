@@ -1,53 +1,99 @@
-// Package log_middleware 日志中间件 body 记录策略回归测试。
-//
-// 背景：LogMiddleware 原先对每个非采样路径的请求体与响应体都做完整 JSON 解析并再次
-// 编码进日志，310KB 的 session/message/list 响应因此在请求线程上多付 8~20ms，是边缘
-// 大响应接口的主要 CPU 成本之一（docs/loadtest/QPS-OPTIMIZATION.md §3.1）。
-//
-// 现行策略是「请求体始终记、响应体只在失败现场记」：
-//   - 请求体是 LLM 代理 prompt 的唯一落点（审计表不存内容），成功请求丢掉它等于
-//     丢掉「这句话是谁问的」，所以不能一并按失败过滤；
-//   - 响应体是日志体积与 CPU 的主要来源，只在错误或 4xx/5xx 时记录。
-//
-// 中间件本身依赖包级 logger（项目 lint 禁止 zap.Logger 作为字段/参数），故这里只断言
-// 响应体策略函数；请求体「始终记录」由 middleware.LogMiddleware 的调用点保证（无分支），
-// 超长 body 的截断由 test/unit/truncate_field 覆盖。
 package log_middleware
 
 import (
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/bytedance/sonic"
 	"github.com/gofiber/fiber/v3"
-
-	"github.com/hcd233/aris-mass/internal/common/ierr"
+	"github.com/hcd233/aris-mass/internal/common/constant"
+	"github.com/hcd233/aris-mass/internal/config"
 	"github.com/hcd233/aris-mass/internal/middleware"
 )
 
-func TestShouldLogResponseBody(t *testing.T) {
+func TestRequestLogCorrelatesBusinessFailureWithoutPayload(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name     string
-		err      error
-		status   int
-		expected bool
-	}{
-		{name: "success 200", err: nil, status: fiber.StatusOK, expected: false},
-		{name: "redirect 302", err: nil, status: fiber.StatusFound, expected: false},
-		{name: "client error 400", err: nil, status: fiber.StatusBadRequest, expected: true},
-		{name: "validation error 422", err: nil, status: fiber.StatusUnprocessableEntity, expected: true},
-		{name: "server error 500", err: nil, status: fiber.StatusInternalServerError, expected: true},
-		{name: "handler error with 200 status", err: ierr.New(ierr.ErrInternal, "boom"), status: fiber.StatusOK, expected: true},
+	app := fiber.New()
+	app.Use(middleware.TraceMiddleware(), middleware.LogMiddleware(middleware.LogMiddlewareConfig{
+		SamplingRules: []middleware.LogSamplingRule{{Path: "/api/test", Interval: time.Hour}},
+	}))
+	app.Post("/api/test", func(c fiber.Ctx) error {
+		if c.Query("id") == "1" {
+			return c.SendStatus(fiber.StatusNoContent)
+		}
+		c.Type("json")
+		return c.SendString(`{"error":{"code":10006,"message":"private-error-text"}}`)
+	})
+
+	send := func(id string) string {
+		t.Helper()
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/api/test?id="+id+"&code=private-oauth-code",
+			strings.NewReader(`{"model":"gpt-test","stream":false,"messages":[{"content":"private-prompt"}],"api_key":"private-key"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set(fiber.HeaderContentType, fiber.MIMEApplicationJSON)
+		req.Header.Set(fiber.HeaderAuthorization, "Bearer private-bearer")
+		resp, err := app.Test(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			t.Fatal(closeErr)
+		}
+		if id == "2" && resp.StatusCode != fiber.StatusOK {
+			t.Fatalf("business error status = %d, want 200", resp.StatusCode)
+		}
+		return resp.Header.Get(constant.HTTPHeaderTraceID)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			got := middleware.ShouldLogResponseBody(tt.err, tt.status)
-			if got != tt.expected {
-				t.Fatalf("ShouldLogResponseBody(err=%v, status=%d) = %v, expected %v", tt.err, tt.status, got, tt.expected)
-			}
-		})
+	_ = send("1")
+	traceID := send("2")
+	entry := traceLog(t, traceID, "http.request.finished")
+	var got struct {
+		Status       int    `json:"status"`
+		BizErrorCode int    `json:"bizErrorCode"`
+		Outcome      string `json:"outcome"`
+		Query        struct {
+			ID string `json:"id"`
+		} `json:"queryParams"`
+		Request struct {
+			Model        string `json:"model"`
+			Stream       *bool  `json:"stream"`
+			MessageCount int    `json:"messageCount"`
+		} `json:"requestParams"`
 	}
+	if err := sonic.UnmarshalString(entry, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != 200 || got.BizErrorCode != 10006 || got.Outcome != "business_error" || got.Query.ID != "2" ||
+		got.Request.Model != "gpt-test" || got.Request.Stream == nil || *got.Request.Stream || got.Request.MessageCount != 1 {
+		t.Fatalf("unexpected request log %s", entry)
+	}
+	if strings.Contains(entry, "private-") {
+		t.Fatalf("private data reached logs: %s", entry)
+	}
+}
+
+func traceLog(t *testing.T, traceID, event string) string {
+	t.Helper()
+	if traceID == "" {
+		t.Fatal("missing response trace ID")
+	}
+	logs, err := os.ReadFile(filepath.Join(config.LogDirPath, constant.LogInfoFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for entry := range strings.SplitSeq(string(logs), "\n") {
+		if strings.Contains(entry, traceID) && strings.Contains(entry, `"event":"`+event+`"`) {
+			return entry
+		}
+	}
+	t.Fatalf("missing %s log for traceID %s", event, traceID)
+	return ""
 }

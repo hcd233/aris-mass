@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/samber/lo"
-	"go.uber.org/zap"
 
 	"github.com/hcd233/aris-mass/internal/application/llmproxy/port"
 	proxyutil "github.com/hcd233/aris-mass/internal/application/llmproxy/util"
@@ -213,7 +212,7 @@ func submitCaptureStore(ctx context.Context, submitter TaskSubmitter, modelID st
 		Tools:      tools,
 		Metadata:   metadata,
 	}); err != nil {
-		logger.WithCtx(ctx).Error("[TriggerCapture] Failed to submit capture store task", zap.Error(err))
+		logger.WithCtx(ctx).Error("[TriggerCapture] Failed to submit capture store task", logger.ErrorFields(err)...)
 	}
 }
 
@@ -271,7 +270,7 @@ func (u *anthropicUseCase) storeAnthropicHistory(ctx context.Context, req *dto.A
 	for _, msg := range hist {
 		um, err := dto.FromAnthropicMessage(msg)
 		if err != nil {
-			logger.WithCtx(ctx).Warn("[TriggerCapture] Skip message conversion in history", zap.Error(err))
+			logger.WithCtx(ctx).Warn("[TriggerCapture] Skip message conversion in history", logger.ErrorFields(err)...)
 			continue
 		}
 		unified = append(unified, um)
@@ -322,7 +321,7 @@ func (u *openAIUseCase) storeOpenAIChatHistory(ctx context.Context, req *dto.Ope
 	for _, msg := range hist {
 		um, err := dto.FromOpenAIMessage(msg)
 		if err != nil {
-			logger.WithCtx(ctx).Warn("[TriggerCapture] Skip message conversion in history", zap.Error(err))
+			logger.WithCtx(ctx).Warn("[TriggerCapture] Skip message conversion in history", logger.ErrorFields(err)...)
 			continue
 		}
 		unified = append(unified, um)
@@ -365,7 +364,7 @@ func captureResponseHistory(ctx context.Context, req *dto.OpenAICreateResponseRe
 	}
 	ums, err := dto.FromResponseAPIInputItems(req.Body.Input.Items[:lastIdx])
 	if err != nil {
-		logger.WithCtx(ctx).Warn("[TriggerCapture] Skip input items conversion in history", zap.Error(err))
+		logger.WithCtx(ctx).Warn("[TriggerCapture] Skip input items conversion in history", logger.ErrorFields(err)...)
 		return unified
 	}
 	return append(unified, ums...)

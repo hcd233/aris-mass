@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/samber/lo"
-	"go.uber.org/zap"
 
 	"github.com/hcd233/aris-mass/internal/common/constant"
 	"github.com/hcd233/aris-mass/internal/common/enum"
@@ -29,7 +28,7 @@ func NewListClientModels(readRepo llmproxy.EndpointReadRepository) *ListClientMo
 func (q *ListClientModels) Handle(ctx context.Context) (*dto.ClientModelsRsp, error) {
 	projections, err := q.readRepo.ListEnabledModelDetails(ctx, util.CtxValueUint(ctx, constant.CtxKeyUserID))
 	if err != nil {
-		logger.WithCtx(ctx).Error("[ClientQuery] Failed to list model details", zap.Error(err))
+		logger.WithCtx(ctx).Error("[ClientQuery] Failed to list model details", logger.ErrorFields(err)...)
 		return nil, err
 	}
 	return &dto.ClientModelsRsp{

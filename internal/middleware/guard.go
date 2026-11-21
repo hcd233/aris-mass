@@ -258,7 +258,6 @@ func GuardMiddleware(cache *redis.Client, cfg GuardConfig) fiber.Handler {
 				logger.WithFCtx(c).Warn("[GuardMiddleware] IP banned due to route scanning",
 					zap.String("ip", ip),
 					zap.Int64("strikes", strikes),
-					zap.String("path", c.Path()),
 					zap.String("method", c.Method()))
 			}
 		}

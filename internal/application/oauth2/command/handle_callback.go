@@ -66,15 +66,14 @@ func (h *initiateLoginHandler) Handle(ctx context.Context, cmd port.InitiateLogi
 
 	state, err := h.stateManager.GenerateState(cmd.Platform)
 	if err != nil {
-		log.Error("[OAuth2Command] Failed to generate state", zap.Error(err))
+		log.Error("[OAuth2Command] Failed to generate state", logger.ErrorFields(err)...)
 		return nil, ierr.Wrap(ierr.ErrInternal, err, "generate oauth state")
 	}
 
 	url := platform.GetAuthURLWithState(state)
 
 	log.Info("[OAuth2Command] Initiate login",
-		zap.String("platform", cmd.Platform),
-		zap.String("redirectURL", url))
+		zap.String("platform", logger.Identifier(cmd.Platform)))
 	return &port.InitiateLoginResult{RedirectURL: url}, nil
 }
 
@@ -176,9 +175,7 @@ func (h *handleCallbackHandler) validateStateAndPlatform(ctx context.Context, st
 
 	if err := h.stateManager.VerifyState(state); err != nil {
 		log.Error("[OAuth2Command] Invalid or expired state",
-			zap.String("platform", platform),
-			zap.String("state", state),
-			zap.Error(err))
+			append(logger.ErrorFields(err), zap.String("platform", logger.Identifier(platform)))...)
 		return nil, ierr.New(ierr.ErrUnauthorized, "invalid oauth state")
 	}
 
@@ -207,14 +204,14 @@ func (h *handleCallbackHandler) exchangeAndFetchUser(ctx context.Context, platfo
 	log.Info("[OAuth2Command] Exchanging token")
 	token, err := platform.ExchangeToken(ctx, code)
 	if err != nil {
-		log.Error("[OAuth2Command] Failed to exchange token", zap.Error(err))
+		log.Error("[OAuth2Command] Failed to exchange token", logger.ErrorFields(err)...)
 		return oauthvo.OAuthUserInfo{}, ierr.Wrap(ierr.ErrOAuth2Exchange, err, "exchange oauth token")
 	}
 	h.logTokenReceived(ctx, token)
 
 	userInfo, err := platform.GetUserInfo(ctx, token)
 	if err != nil {
-		log.Error("[OAuth2Command] Failed to get user info", zap.Error(err))
+		log.Error("[OAuth2Command] Failed to get user info", logger.ErrorFields(err)...)
 		return oauthvo.OAuthUserInfo{}, ierr.Wrap(ierr.ErrOAuth2UserInfo, err, "get oauth user info")
 	}
 
@@ -240,14 +237,14 @@ func (h *handleCallbackHandler) resolveUser(ctx context.Context, platformName st
 	existing, err := h.findByBindID(ctx, platformName, thirdPartyID)
 	if err != nil {
 		log.Error("[OAuth2Command] Failed to find user by third party bind id",
-			zap.String("platform", platformName), zap.String("thirdPartyID", thirdPartyID), zap.Error(err))
+			append(logger.ErrorFields(err), zap.String("platform", platformName))...)
 		return 0, false, err
 	}
 
 	if existing != nil {
 		if err := h.userRepo.TouchLastLogin(ctx, existing.AggregateID()); err != nil {
 			log.Error("[OAuth2Command] Failed to update user login time",
-				zap.String("platform", platformName), zap.Error(err))
+				append(logger.ErrorFields(err), zap.String("platform", platformName))...)
 			return 0, false, err
 		}
 		return existing.AggregateID(), false, nil
@@ -267,12 +264,12 @@ func (h *handleCallbackHandler) resolveUser(ctx context.Context, platformName st
 	)
 	if regErr != nil {
 		log.Error("[OAuth2Command] Register user aggregate failed",
-			zap.String("platform", platformName), zap.String("userName", userName), zap.Error(regErr))
+			append(logger.ErrorFields(regErr), zap.String("platform", platformName))...)
 		return 0, false, regErr
 	}
 	if err := h.userRepo.Save(ctx, user); err != nil {
 		log.Error("[OAuth2Command] Failed to save new user",
-			zap.String("platform", platformName), zap.String("userName", userName), zap.Error(err))
+			append(logger.ErrorFields(err), zap.String("platform", platformName))...)
 		return 0, false, err
 	}
 
@@ -294,12 +291,12 @@ func (h *handleCallbackHandler) signTokenPair(ctx context.Context, userID uint) 
 
 	accessToken, err = h.accessSigner.EncodeToken(userID)
 	if err != nil {
-		log.Error("[OAuth2Command] Failed to encode access token", zap.Error(err))
+		log.Error("[OAuth2Command] Failed to encode access token", logger.ErrorFields(err)...)
 		return "", "", ierr.Wrap(ierr.ErrJWTEncode, err, "encode access token")
 	}
 	refreshToken, err = h.refreshSigner.EncodeToken(userID)
 	if err != nil {
-		log.Error("[OAuth2Command] Failed to encode refresh token", zap.Error(err))
+		log.Error("[OAuth2Command] Failed to encode refresh token", logger.ErrorFields(err)...)
 		return "", "", ierr.Wrap(ierr.ErrJWTEncode, err, "encode refresh token")
 	}
 

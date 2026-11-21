@@ -5,11 +5,30 @@ import "time"
 const (
 	LogMiddlewareSamplingInterval = 5 * time.Minute
 
-	// LogMiddlewareBodyMaxBytes 日志记录请求/响应体的字节上限。
-	// 超过上限的 body 只记录截断后的字符串，不再整体 JSON 解析：
-	// 310KB 的 session/message/list 响应完整解析 + 再编码约需 8~20ms/req，
-	// 是压在边缘大响应接口上的主要 CPU 成本（见 docs/loadtest/QPS-OPTIMIZATION.md）。
-	LogMiddlewareBodyMaxBytes = 2048
+	LogRequestInspectMaxBytes = 1 << 20
+	LogErrorInspectMaxBytes   = 8 << 10
+	LogIdentifierMaxBytes     = 128
+	LogSQLTemplateMaxBytes    = 2048
+
+	LogIdentifierPunctuation = "._:/-[]"
+	HTTPMediaTypeJSONSuffix  = "+json"
+
+	LogOutcomeSuccess       = "success"
+	LogOutcomeFailed        = "failed"
+	LogOutcomeIncomplete    = "incomplete"
+	LogOutcomeServerError   = "server_error"
+	LogOutcomeClientError   = "client_error"
+	LogOutcomeBusinessError = "business_error"
+
+	LogErrorKindInternal        = "internal"
+	LogErrorKindCanceled        = "canceled"
+	LogErrorKindTimeout         = "timeout"
+	LogErrorKindUnexpectedEOF   = "unexpected_eof"
+	LogErrorKindNetwork         = "network"
+	LogErrorKindUpstreamHTTP    = "upstream_http"
+	LogErrorKindCircuitOpen     = "circuit_open"
+	LogErrorKindBulkheadFull    = "bulkhead_full"
+	LogErrorKindOAuthCredential = "oauth_credential"
 
 	LogInfoMaxSizeMB  = 100
 	LogInfoMaxBackups = 3
@@ -29,4 +48,10 @@ const (
 	CLSFieldStack     = "stack"
 
 	CLSProducerCloseTimeoutMs = 10000
+)
+
+var (
+	LogQueryNumberParams        = [...]string{"id", "endpointID", "sessionID", "apiKeyID", "page", "pageSize", "limit", "offset"}
+	LogQueryStringParams        = [...]string{"model", "upstreamModel", "protocol", "sort", "sortField", "stream", "status", "capability", "missingOnly"}
+	LogUpstreamRequestIDHeaders = [...]string{"Request-Id", "X-Request-Id", "X-Amzn-RequestId"}
 )

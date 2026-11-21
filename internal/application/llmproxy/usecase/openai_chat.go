@@ -10,7 +10,6 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/samber/lo"
-	"go.uber.org/zap"
 
 	"github.com/hcd233/aris-mass/internal/application/llmproxy/converter"
 	"github.com/hcd233/aris-mass/internal/application/llmproxy/port"
@@ -36,7 +35,7 @@ func (u *openAIUseCase) forwardChatViaAnthropic(ctx context.Context, req *dto.Op
 	conv := &converter.AnthropicProtocolConverter{}
 	anthropicReq, convErr := conv.FromOpenAIRequest(req.Body)
 	if convErr != nil {
-		logger.WithCtx(ctx).Error("[OpenAIUseCase] Failed to convert chat request to anthropic", zap.Error(convErr))
+		logger.WithCtx(ctx).Error("[OpenAIUseCase] Failed to convert chat request to anthropic", logger.ErrorFields(convErr)...)
 		return nil, proxyutil.SendOpenAIModelNotFoundError(exposedModel)
 	}
 	stream := req.Body.Stream != nil && *req.Body.Stream
@@ -145,7 +144,7 @@ func (u *openAIUseCase) forwardChatViaAnthropicUnary(ctx context.Context, req *d
 	}
 	completion, convErr := conv.ToOpenAIResponse(anthropicMsg)
 	if convErr != nil {
-		logger.WithCtx(ctx).Error("[OpenAIUseCase] Failed to convert anthropic message to chat completion", zap.Error(convErr))
+		logger.WithCtx(ctx).Error("[OpenAIUseCase] Failed to convert anthropic message to chat completion", logger.ErrorFields(convErr)...)
 		return nil, &port.ProxyError{
 			StatusCode: http.StatusInternalServerError,
 			Headers:    map[string]string{constant.HTTPHeaderContentType: constant.HTTPContentTypeJSON},
@@ -199,7 +198,7 @@ func (s *openAIChatNativeStream) Read(ctx context.Context, sink port.EventSink) 
 		chunk.Model = s.req.Body.Model
 		chunkData, marshalErr := sonic.Marshal(chunk)
 		if marshalErr != nil {
-			logger.WithCtx(ctx).Error("[OpenAIUseCase] Failed to marshal chunk", zap.Error(marshalErr))
+			logger.WithCtx(ctx).Error("[OpenAIUseCase] Failed to marshal chunk", logger.ErrorFields(marshalErr)...)
 			return marshalErr
 		}
 		return sink.WriteEvent("", chunkData)
@@ -207,7 +206,7 @@ func (s *openAIChatNativeStream) Read(ctx context.Context, sink port.EventSink) 
 	s.timer.finish()
 	if err == nil {
 		if writeErr := sink.WriteEvent("", []byte(constant.SSEDoneSignal)); writeErr != nil {
-			logger.WithCtx(ctx).Debug("[OpenAIUseCase] Failed to write SSE done signal", zap.Error(writeErr))
+			logger.WithCtx(ctx).Debug("[OpenAIUseCase] Failed to write SSE done signal", logger.ErrorFields(writeErr)...)
 		}
 	} else {
 		proxyutil.WriteUpstreamSSEError(ctx, sink, err, enum.ProtocolKindOpenAI)
@@ -219,7 +218,7 @@ func (s *openAIChatNativeStream) Read(ctx context.Context, sink port.EventSink) 
 	if completion != nil {
 		usage = completion.Usage
 	}
-	recordModelCall(ctx, s.u.taskSubmitter, s.u.tokenMetrics, callOutcome{
+	recordModelCall(s.ctx, s.u.taskSubmitter, s.u.tokenMetrics, callOutcome{
 		model:               s.m,
 		endpoint:            s.ep.Name(),
 		upstreamProtocol:    enum.ProtocolOpenAIChatCompletion,
@@ -229,7 +228,7 @@ func (s *openAIChatNativeStream) Read(ctx context.Context, sink port.EventSink) 
 		usage:               openAITokenUsage{usage},
 		err:                 err,
 	})
-	return nil
+	return err
 }
 
 // Close 兜底关闭上游 body：Read 内部已 defer Close，此处覆盖 adapter 未调用 Read
@@ -285,7 +284,7 @@ func (s *openAIChatViaAnthropicStream) Read(ctx context.Context, sink port.Event
 		completion.Model = s.exposedModel
 	}
 	s.u.storeOpenAIChatFromCompletion(s.ctx, s.req, completion, err, s.m.ModelID())
-	recordModelCall(ctx, s.u.taskSubmitter, s.u.tokenMetrics, callOutcome{
+	recordModelCall(s.ctx, s.u.taskSubmitter, s.u.tokenMetrics, callOutcome{
 		model:               s.m,
 		endpoint:            s.endpoint,
 		upstreamProtocol:    enum.ProtocolAnthropicMessage,
@@ -295,7 +294,7 @@ func (s *openAIChatViaAnthropicStream) Read(ctx context.Context, sink port.Event
 		usage:               anthropicTokenUsage{anthropicMsg},
 		err:                 err,
 	})
-	return nil
+	return err
 }
 
 // Close 兜底关闭上游 body：Read 内部已 defer Close，此处覆盖 adapter 未调用 Read

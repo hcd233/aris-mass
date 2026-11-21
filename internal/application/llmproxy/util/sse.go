@@ -8,7 +8,6 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/samber/lo"
-	"go.uber.org/zap"
 
 	"github.com/hcd233/aris-mass/internal/application/llmproxy/port"
 	"github.com/hcd233/aris-mass/internal/common/constant"
@@ -47,7 +46,7 @@ func WriteAnthropicMessageStop(sink port.EventSink) error {
 func WriteUpstreamSSEError(ctx context.Context, sink port.EventSink, err error, protocol enum.ProtocolKind) {
 	log := logger.WithCtx(ctx)
 	if errors.Is(err, context.Canceled) {
-		log.Warn("[WriteUpstreamSSEError] Upstream canceled by drain or client disconnect", zap.Error(err))
+		log.Warn("[WriteUpstreamSSEError] Upstream canceled by drain or client disconnect", logger.ErrorFields(err)...)
 		var writeErr error
 		if protocol == enum.ProtocolKindAnthropic {
 			writeErr = sink.WriteEvent(enum.AnthropicSSEEventTypeError, []byte(constant.SSEAnthropicShuttingDownData))
@@ -55,27 +54,27 @@ func WriteUpstreamSSEError(ctx context.Context, sink port.EventSink, err error, 
 			writeErr = sink.WriteEvent("", []byte(constant.SSEOpenAIShuttingDownData))
 		}
 		if writeErr != nil {
-			log.Debug("[WriteUpstreamSSEError] Failed to write shutting down frame", zap.Error(writeErr))
+			log.Debug("[WriteUpstreamSSEError] Failed to write shutting down frame", logger.ErrorFields(writeErr)...)
 		}
 		return
 	}
 	var upstreamErr *model.UpstreamError
 	if !errors.As(err, &upstreamErr) {
-		log.Error("[WriteUpstreamSSEError] Non-upstream error in SSE stream", zap.Error(err))
+		log.Error("[WriteUpstreamSSEError] Non-upstream error in SSE stream", logger.ErrorFields(err)...)
 		if writeErr := sink.WriteEvent("", []byte(constant.SSEOpenAIInternalErrorData)); writeErr != nil {
-			log.Debug("[WriteUpstreamSSEError] Failed to write internal error frame", zap.Error(writeErr))
+			log.Debug("[WriteUpstreamSSEError] Failed to write internal error frame", logger.ErrorFields(writeErr)...)
 		}
 		return
 	}
 	if upstreamErr.Body != "" {
 		if writeErr := sink.WriteEvent("", []byte(upstreamErr.Body)); writeErr != nil {
-			log.Debug("[WriteUpstreamSSEError] Failed to write upstream error body", zap.Error(writeErr))
+			log.Debug("[WriteUpstreamSSEError] Failed to write upstream error body", logger.ErrorFields(writeErr)...)
 		}
 		return
 	}
 	data := fmt.Sprintf(constant.SSEOpenAIUpstreamErrorData, upstreamErr.StatusCode)
 	if writeErr := sink.WriteEvent("", []byte(data)); writeErr != nil {
-		log.Debug("[WriteUpstreamSSEError] Failed to write upstream status frame", zap.Error(writeErr))
+		log.Debug("[WriteUpstreamSSEError] Failed to write upstream status frame", logger.ErrorFields(writeErr)...)
 	}
 }
 

@@ -334,6 +334,10 @@ _Avoid_: aris-cli, client tool
 使用 `go.uber.org/dig` 管理全部依赖注入。所有 Provider（Repository、UseCase、Handler、Cache、Cron）在 `internal/bootstrap/container.go` 中统一注册，按模块分组。使用 `fx.Module` / `fx.Annotate` 模式管理命名实例、接口绑定和分组。
 _Avoid_: di container, dependency graph, ioc container
 
+**Request Trace（请求追踪）**:
+应用入口为请求生成 `X-Trace-Id`，后端日志和模型调用审计通过 `traceID` 关联。访问日志表示 HTTP 响应准备完成。流式请求另外记录实际的 SSE 消费结果，候选端点与同端点内的 HTTP 尝试分别计数。
+_Avoid_: request payload dump
+
 **Pond Pool（协程池）**:
 基于 `github.com/alitto/pond` 的协程池，管理异步任务提交。提供 `SubmitModelCallAuditTask`（审计写入）、`SubmitMessageStoreTask`（消息持久化）等池方法。池大小、队列容量可配置，优雅关闭时 draining 等待进行中任务。
 _Avoid_: goroutine pool, task queue, worker pool

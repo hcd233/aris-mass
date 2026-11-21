@@ -12,6 +12,7 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/adapters/humafiber"
 	"github.com/gofiber/fiber/v3"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/sync/singleflight"
@@ -121,7 +122,7 @@ func saveAPIKeyAuthCache(ctx context.Context, cache *redis.Client, cacheKey stri
 		return
 	}
 	if setErr := cache.Set(ctx, cacheKey, payload, apiKeyAuthCacheTTL()).Err(); setErr != nil {
-		logger.WithCtx(ctx).Warn("[APIKeyMiddleware] Failed to cache api key auth", zap.Error(setErr))
+		logger.WithCtx(ctx).Warn("[APIKeyMiddleware] Failed to cache api key auth", logger.ErrorFields(setErr)...)
 	}
 }
 
@@ -188,11 +189,11 @@ func APIKeyMiddleware(db *gorm.DB, cache *redis.Client) func(ctx huma.Context, n
 		if err != nil {
 			status := APIKeyAuthFailureStatus(err)
 			if status == fiber.StatusUnauthorized {
-				logger.WithCtx(ctx.Context()).Info("[APIKeyMiddleware] API key not found", zap.Error(err))
+				logger.WithCtx(ctx.Context()).Info("[APIKeyMiddleware] API key not found", logger.ErrorFields(err)...)
 				lo.Must0(apiutil.WriteErrorHTTPResponse(ctx, status, ierr.ErrUnauthorized.BizError().Localize(i18n.FromCtx(ctx.Context()))))
 				return
 			}
-			logger.WithCtx(ctx.Context()).Error("[APIKeyMiddleware] Failed to load API key auth", zap.Error(err))
+			logger.WithCtx(ctx.Context()).Error("[APIKeyMiddleware] Failed to load API key auth", logger.ErrorFields(err)...)
 			lo.Must0(apiutil.WriteErrorHTTPResponse(ctx, status, ierr.ErrInternal.BizError().Localize(i18n.FromCtx(ctx.Context()))))
 			return
 		}
@@ -216,7 +217,7 @@ func APIKeyMiddleware(db *gorm.DB, cache *redis.Client) func(ctx huma.Context, n
 		}
 		if userErr != nil {
 			logger.WithCtx(ctx.Context()).Error("[APIKeyMiddleware] Failed to resolve user",
-				zap.Error(userErr), zap.Uint("userID", auth.UserID))
+				append(logger.ErrorFields(userErr), zap.Uint("userID", auth.UserID))...)
 			lo.Must0(apiutil.WriteErrorHTTPResponse(ctx, fiber.StatusInternalServerError, ierr.ErrInternal.BizError().Localize(i18n.FromCtx(ctx.Context()))))
 			return
 		}
@@ -229,6 +230,9 @@ func APIKeyMiddleware(db *gorm.DB, cache *redis.Client) func(ctx huma.Context, n
 			return
 		}
 
+		fiberCtx := humafiber.Unwrap(ctx)
+		fiberCtx.Locals(constant.CtxKeyUserID, auth.UserID)
+		fiberCtx.Locals(constant.CtxKeyAPIKeyID, auth.APIKeyID)
 		ctx = huma.WithValue(ctx, constant.CtxKeyUserID, auth.UserID)
 		ctx = huma.WithValue(ctx, constant.CtxKeyUserName, userName)
 		ctx = huma.WithValue(ctx, constant.CtxKeyAPIKeyID, auth.APIKeyID)

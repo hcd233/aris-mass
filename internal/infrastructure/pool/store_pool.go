@@ -40,6 +40,7 @@ func (pm *PoolManager) SubmitMessageStoreTask(task *dto.MessageStoreTask) error 
 }
 
 func (pm *PoolManager) runMessageStoreTask(task *dto.MessageStoreTask) {
+	started := time.Now()
 	log := logger.WithCtx(task.Ctx)
 	db := pm.db.WithContext(task.Ctx)
 
@@ -93,7 +94,7 @@ func (pm *PoolManager) runMessageStoreTask(task *dto.MessageStoreTask) {
 		})
 		messageIDs, err = pm.deduplicateAndStoreMessages(tx, messages)
 		if err != nil {
-			log.Error("[StorePool] Failed to store messages", zap.Error(err))
+			log.Error("[StorePool] Failed to store messages", logger.ErrorFields(err)...)
 			return err
 		}
 
@@ -106,7 +107,7 @@ func (pm *PoolManager) runMessageStoreTask(task *dto.MessageStoreTask) {
 
 		toolIDs, err := pm.deduplicateAndStoreTools(tx, tools)
 		if err != nil {
-			log.Error("[StorePool] Failed to store tools", zap.Error(err))
+			log.Error("[StorePool] Failed to store tools", logger.ErrorFields(err)...)
 			return err
 		}
 
@@ -117,16 +118,24 @@ func (pm *PoolManager) runMessageStoreTask(task *dto.MessageStoreTask) {
 			ToolIDs:    toolIDs,
 		})
 		if err := dao.GetSessionDAO().Create(tx, session); err != nil {
-			log.Error("[StorePool] Failed to create session", zap.Error(err))
+			log.Error("[StorePool] Failed to create session", logger.ErrorFields(err)...)
 			return err
 		}
 		return nil
 	})
+	fields := []zap.Field{
+		zap.String("event", "llm.session.persisted"),
+		zap.String("modelID", task.ModelID),
+		zap.Int("messageCount", len(task.Messages)),
+		zap.Int("toolCount", len(task.Tools)),
+		zap.Int64("durationMs", time.Since(started).Milliseconds()),
+	}
 	if err != nil {
-		log.Error("[StorePool] Transaction failed", zap.Error(err))
+		fields = append(fields, zap.String("outcome", "failed"))
+		log.Error("[StorePool] Session write failed", append(fields, logger.ErrorFields(err)...)...)
 		return
 	}
-	log.Info("[StorePool] Messages stored successfully")
+	log.Info("[StorePool] Session persisted", append(fields, zap.String("outcome", "success"), zap.Uint("sessionID", session.ID))...)
 	pm.mergeSessionSnapshot(task.Ctx, session)
 }
 
@@ -148,7 +157,7 @@ func (pm *PoolManager) mergeSessionSnapshot(ctx context.Context, session *dbmode
 	log := logger.WithCtx(ctx)
 	deduped, touchedIDs, err := repository.DeduplicateSessionGroup(pm.db.WithContext(ctx), session)
 	if err != nil {
-		log.Error("[StorePool] Session deduplication failed, will self-heal on next insert", zap.Error(err))
+		log.Error("[StorePool] Session deduplication failed, will self-heal on next insert", logger.ErrorFields(err)...)
 		return
 	}
 	pm.invalidateSessionMetas(ctx, touchedIDs)
@@ -177,7 +186,7 @@ func (pm *PoolManager) invalidateSessionMetas(ctx context.Context, sessionIDs []
 	for _, sessionID := range sessionIDs {
 		if err := pm.sessionCache.DeleteSessionMeta(ctx, sessionID); err != nil {
 			logger.WithCtx(ctx).Warn("[StorePool] Session meta cache invalidation failed",
-				zap.Uint("sessionID", sessionID), zap.Error(err))
+				append(logger.ErrorFields(err), zap.Uint("sessionID", sessionID))...)
 		}
 	}
 }
@@ -291,11 +300,20 @@ func (pm *PoolManager) SubmitModelCallAuditTask(task *dto.ModelCallAuditTask) er
 			CacheReadCostMicro:   task.CacheReadCostMicro,
 			PricingCurrency:      enum.Currency(task.PricingCurrency),
 		}, auditNow(task))
-		if err := pm.auditRepo.Save(task.Ctx, audit); err != nil {
-			l.Error("[StorePool] Failed to store audit record", zap.Error(err))
+		started := time.Now()
+		err := pm.auditRepo.Save(task.Ctx, audit)
+		fields := []zap.Field{
+			zap.String("event", "llm.audit.persisted"),
+			zap.String("modelID", task.ModelID),
+			zap.String("endpoint", task.Endpoint),
+			zap.Int64("durationMs", time.Since(started).Milliseconds()),
+		}
+		if err != nil {
+			fields = append(fields, zap.String("outcome", "failed"))
+			l.Error("[StorePool] Audit write failed", append(fields, logger.ErrorFields(err)...)...)
 			return
 		}
-		l.Info("[StorePool] Audit record stored successfully")
+		l.Info("[StorePool] Audit persisted", append(fields, zap.String("outcome", "success"))...)
 	})
 }
 
@@ -320,7 +338,7 @@ func (pm *PoolManager) SubmitDemoAccessAuditTask(task *dto.DemoAccessAuditTask) 
 			Reason:    task.Reason,
 		}
 		if err := pm.demoAccessAuditRepo.Save(task.Ctx, view); err != nil {
-			l.Error("[StorePool] Failed to store demo access audit", zap.Error(err))
+			l.Error("[StorePool] Failed to store demo access audit", logger.ErrorFields(err)...)
 		}
 	})
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/samber/lo"
-	"go.uber.org/zap"
 
 	"github.com/hcd233/aris-mass/internal/common/constant"
 	"github.com/hcd233/aris-mass/internal/common/enum"
@@ -45,7 +44,7 @@ func (u *openAIUseCase) storeDecisionSession(ctx context.Context, req *dto.OpenA
 		InputTokens:  inputTokens,
 		OutputTokens: outputTokens,
 	}); err != nil {
-		log.Error("[OpenAIUseCase] Failed to submit decision message store task", zap.Error(err))
+		log.Error("[OpenAIUseCase] Failed to submit decision message store task", logger.ErrorFields(err)...)
 	}
 }
 

@@ -126,7 +126,7 @@ func TestSendUpstreamWithRetry(t *testing.T) { //nolint:paralleltest // modifies
 	t.Run("首次成功", func(t *testing.T) {
 		t.Parallel()
 		var calls atomic.Int32
-		sendFn := func() (*http.Response, error) {
+		sendFn := func(_ int) (*http.Response, error) {
 			calls.Add(1)
 			return makeOKResp(), nil
 		}
@@ -143,7 +143,7 @@ func TestSendUpstreamWithRetry(t *testing.T) { //nolint:paralleltest // modifies
 	t.Run("522 后重试成功", func(t *testing.T) {
 		t.Parallel()
 		var calls atomic.Int32
-		sendFn := func() (*http.Response, error) {
+		sendFn := func(_ int) (*http.Response, error) {
 			n := calls.Add(1)
 			if n == 1 {
 				return nil, &model.UpstreamError{StatusCode: 522, Body: "timeout"}
@@ -163,7 +163,7 @@ func TestSendUpstreamWithRetry(t *testing.T) { //nolint:paralleltest // modifies
 	t.Run("522 重试耗尽", func(t *testing.T) {
 		t.Parallel()
 		var calls atomic.Int32
-		sendFn := func() (*http.Response, error) {
+		sendFn := func(_ int) (*http.Response, error) {
 			calls.Add(1)
 			return nil, &model.UpstreamError{StatusCode: 522, Body: "timeout"}
 		}
@@ -183,7 +183,7 @@ func TestSendUpstreamWithRetry(t *testing.T) { //nolint:paralleltest // modifies
 	t.Run("4xx 不重试", func(t *testing.T) {
 		t.Parallel()
 		var calls atomic.Int32
-		sendFn := func() (*http.Response, error) {
+		sendFn := func(_ int) (*http.Response, error) {
 			calls.Add(1)
 			return nil, &model.UpstreamError{StatusCode: 404, Body: "not found"}
 		}
@@ -199,7 +199,7 @@ func TestSendUpstreamWithRetry(t *testing.T) { //nolint:paralleltest // modifies
 	t.Run("网络错误后重试成功", func(t *testing.T) {
 		t.Parallel()
 		var calls atomic.Int32
-		sendFn := func() (*http.Response, error) {
+		sendFn := func(_ int) (*http.Response, error) {
 			n := calls.Add(1)
 			if n == 1 {
 				return nil, &model.UpstreamConnectionError{Cause: ierr.New(ierr.ErrProxyRequest, "connection refused")}
@@ -220,7 +220,7 @@ func TestSendUpstreamWithRetry(t *testing.T) { //nolint:paralleltest // modifies
 		t.Parallel()
 		ctx, cancel := context.WithCancel(context.Background())
 		var calls atomic.Int32
-		sendFn := func() (*http.Response, error) {
+		sendFn := func(_ int) (*http.Response, error) {
 			calls.Add(1)
 			return nil, &model.UpstreamError{StatusCode: 522, Body: "timeout"}
 		}

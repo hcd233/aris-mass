@@ -97,7 +97,6 @@ func ProxyErrorFromUpstream(err error, protocol enum.ProtocolKind, fallbackBody 
 		return guardRejectedProxyError(bulkheadErr, protocol, guardFullFallbackBody(protocol), constant.BulkheadRetryAfterSeconds)
 	}
 
-	logger.Logger().Error("[ProxyService] Proxy error", zap.Error(err))
 	return &port.ProxyError{
 		StatusCode: http.StatusBadGateway,
 		Headers:    map[string]string{constant.HTTPHeaderContentType: constant.HTTPContentTypeJSON},
@@ -243,25 +242,47 @@ func runWithFallback(ctx context.Context, module, modelName string, cands []serv
 	log := logger.WithCtx(ctx)
 	var lastErr error
 	for i := range cands {
+		candidate := cands[i]
 		deferral := &failureAuditDeferral{active: true}
-		result, fwdErr := attempt(context.WithValue(ctx, constant.CtxKeyFailureAuditDeferral, deferral), cands[i])
+		attemptCtx := context.WithValue(ctx, constant.CtxKeyFailureAuditDeferral, deferral)
+		attemptCtx = context.WithValue(attemptCtx, constant.CtxKeyEndpointAttempt, uint(i+1))
+		log.Info("["+module+"] Trying endpoint",
+			zap.String("event", "llm.route.attempt"),
+			zap.String("model", logger.Identifier(modelName)),
+			zap.Uint("endpointID", candidate.Endpoint.AggregateID()),
+			zap.String("endpoint", candidate.Endpoint.Name()),
+			zap.String("upstreamModel", logger.Identifier(candidate.Model.UpstreamModel())),
+			zap.Int("endpointAttempt", i+1),
+			zap.Int("candidateCount", len(cands)),
+		)
+		result, fwdErr := attempt(attemptCtx, candidate)
 		deferral.active = false
 		if fwdErr == nil {
 			return result, nil
 		}
 		lastErr = fwdErr
 		if i == len(cands)-1 || ctx.Err() != nil || !CanSwitchEndpoint(fwdErr) {
+			fields := []zap.Field{
+				zap.String("event", "llm.route.failed"),
+				zap.Uint("endpointID", candidate.Endpoint.AggregateID()),
+				zap.Int("endpointAttempt", i+1),
+			}
+			log.Warn("["+module+"] Endpoint attempts ended in failure", append(fields, logger.ErrorFields(fwdErr)...)...)
 			if deferral.pending != nil {
 				deferral.pending()
 			}
 			return nil, fwdErr
 		}
-		log.Warn("["+module+"] Upstream failed, switching endpoint",
-			zap.String("model", modelName),
-			zap.String("from", cands[i].Endpoint.Name()),
-			zap.String("to", cands[i+1].Endpoint.Name()),
-			zap.Error(fwdErr),
-		)
+		fields := []zap.Field{
+			zap.String("event", "llm.route.fallback"),
+			zap.String("model", logger.Identifier(modelName)),
+			zap.String("endpoint", candidate.Endpoint.Name()),
+			zap.Uint("endpointID", candidate.Endpoint.AggregateID()),
+			zap.Int("endpointAttempt", i+1),
+			zap.String("nextEndpoint", cands[i+1].Endpoint.Name()),
+			zap.Uint("nextEndpointID", cands[i+1].Endpoint.AggregateID()),
+		}
+		log.Warn("["+module+"] Upstream failed, switching endpoint", append(fields, logger.ErrorFields(fwdErr)...)...)
 	}
 	return nil, lastErr
 }
