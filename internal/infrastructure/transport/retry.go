@@ -67,19 +67,19 @@ func CalculateBackoff(attempt int, initial, maxBackoff time.Duration, jitterFact
 //
 //	@param ctx context.Context 请求上下文
 //	@param module string 模块名（用于日志前缀，如 "OpenAIProxy"）
-//	@param sendFn func() (*http.Response, error) 单次发送闭包
+//	@param sendFn func(int) (*http.Response, error) 接收从 1 开始的尝试序号
 //	@return *http.Response 成功响应
 //	@return error 错误（不可重试错误、重试耗尽后的最后错误、或 ctx.Err()）
 //	@author centonhuang
 //	@update 2026-06-23 10:00:00
-func SendUpstreamWithRetry(ctx context.Context, module string, sendFn func() (*http.Response, error)) (*http.Response, error) {
-	log := logger.WithCtx(ctx)
+func SendUpstreamWithRetry(ctx context.Context, module string, sendFn func(int) (*http.Response, error), upstream ...zap.Field) (*http.Response, error) {
+	log := logger.WithCtx(ctx).With(upstream...)
 
 	var lastErr error
 	maxAttempts := config.UpstreamRetryMaxAttempts
 
 	for attempt := 0; attempt <= maxAttempts; attempt++ {
-		resp, err := sendFn()
+		resp, err := sendFn(attempt + 1)
 		if err == nil {
 			return resp, nil
 		}
@@ -101,21 +101,23 @@ func SendUpstreamWithRetry(ctx context.Context, module string, sendFn func() (*h
 			config.UpstreamRetryJitterFactor,
 		)
 
-		log.Warn("["+module+"] Upstream request failed, retrying",
-			zap.Int("attempt", attempt+1),
+		fields := []zap.Field{
+			zap.String("event", "llm.upstream.retry"),
+			zap.Int("upstreamAttempt", attempt+1),
 			zap.Int("maxAttempts", maxAttempts+1),
-			zap.Duration("backoff", backoff),
-			zap.Error(err),
-		)
+			zap.Int64("backoffMs", backoff.Milliseconds()),
+		}
+		log.Warn("["+module+"] Upstream request failed, retrying", append(fields, logger.ErrorFields(err)...)...)
 
 		timer := time.NewTimer(backoff)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			log.Warn("["+module+"] Retry canceled by context",
-				zap.Int("attempt", attempt+1),
-				zap.Error(ctx.Err()),
-			)
+			fields := []zap.Field{
+				zap.String("event", "llm.upstream.retry_canceled"),
+				zap.Int("upstreamAttempt", attempt+1),
+			}
+			log.Warn("["+module+"] Retry canceled by context", append(fields, logger.ErrorFields(ctx.Err())...)...)
 			return nil, ctx.Err()
 		case <-timer.C:
 		}

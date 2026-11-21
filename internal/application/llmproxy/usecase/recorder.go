@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/hcd233/aris-mass/internal/common/constant"
 	"github.com/hcd233/aris-mass/internal/common/enum"
 	"github.com/hcd233/aris-mass/internal/domain/llmproxy/aggregate"
 	"github.com/hcd233/aris-mass/internal/domain/llmproxy/vo"
@@ -164,12 +165,45 @@ func recordModelCall(ctx context.Context, submitter TaskSubmitter, tokenMetrics 
 
 	PriceModelCall(task, out.model.Pricing())
 
+	log := logger.WithCtx(ctx)
+	outcome, level := constant.LogOutcomeSuccess, zap.InfoLevel
+	var responseStatus string
+	if out.responseStatus != nil {
+		responseStatus = out.responseStatus.Status
+	}
+	if out.err != nil || task.UpstreamStatusCode >= http.StatusBadRequest || task.ErrorMessage != "" {
+		outcome, level = constant.LogOutcomeFailed, zap.WarnLevel
+		if out.err == nil && responseStatus == enum.ResponseStatusIncomplete {
+			outcome = constant.LogOutcomeIncomplete
+		}
+	}
+	fields := []zap.Field{
+		zap.String("event", "llm.call.finished"),
+		zap.String("outcome", outcome),
+		zap.String("modelID", task.ModelID),
+		zap.String("endpoint", task.Endpoint),
+		zap.Uint("endpointAttempt", util.CtxValueUint(ctx, constant.CtxKeyEndpointAttempt)),
+		zap.String("apiProtocol", task.APIProtocol),
+		zap.String("upstreamProtocol", task.UpstreamProtocol),
+		zap.String("providerResponseStatus", logger.Identifier(responseStatus)),
+		zap.Int("auditStatusCode", task.UpstreamStatusCode),
+		zap.Int64("firstTokenLatencyMs", task.FirstTokenLatencyMs),
+		zap.Int64("streamDurationMs", task.StreamDurationMs),
+		zap.Int("inputTokens", task.InputTokens),
+		zap.Int("outputTokens", task.OutputTokens),
+		zap.Int("cacheCreationInputTokens", task.CacheCreationInputTokens),
+		zap.Int("cacheReadInputTokens", task.CacheReadInputTokens),
+	}
+	log.Log(level, "[LLMProxy] Model call finished", append(fields, logger.ErrorFields(out.err)...)...)
+
 	// 审计是 best-effort：队列满/池已停会让任务丢失，至少留下一条可检索的告警日志
 	if submitErr := submitter.SubmitModelCallAuditTask(task); submitErr != nil {
-		logger.WithCtx(ctx).Warn("[LLMProxy] Model call audit dropped",
-			zap.Error(submitErr),
+		fields := []zap.Field{
+			zap.String("event", "llm.audit.dropped"),
 			zap.String("endpoint", out.endpoint),
-			zap.Int("upstreamStatusCode", task.UpstreamStatusCode))
+			zap.Int("auditStatusCode", task.UpstreamStatusCode),
+		}
+		log.Warn("[LLMProxy] Model call audit dropped", append(fields, logger.ErrorFields(submitErr)...)...)
 	}
 }
 

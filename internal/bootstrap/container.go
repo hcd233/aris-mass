@@ -56,12 +56,21 @@ type middlewareParams struct {
 	MetricsMiddleware fiber.Handler
 }
 
-// registerMiddlewares 注册中间件链，顺序：Recover → Metrics → Inflight → Guard → Fgprof → CORS → Compress → Trace → Log
+// registerMiddlewares 让访问日志包住早退和恢复，并在压缩前读取业务错误码。
 func registerMiddlewares(params middlewareParams) {
 	// 标准 Prometheus 文本端点，供未来 Prometheus 抓取（当前不依赖）
 	params.App.Get(constant.RoutePathMetrics, adaptor.HTTPHandler(promhttp.HandlerFor(params.Registry, promhttp.HandlerOpts{})))
 
 	params.App.Use(
+		middleware.TraceMiddleware(),
+		middleware.CompressMiddleware(),
+		middleware.LogMiddleware(middleware.LogMiddlewareConfig{
+			SamplingRules: []middleware.LogSamplingRule{
+				{Path: constant.RoutePathHealth, Interval: constant.LogMiddlewareSamplingInterval},
+				{Path: constant.RoutePathReady, Interval: constant.LogMiddlewareSamplingInterval},
+				{Path: constant.RoutePathSSEHealth, Interval: constant.LogMiddlewareSamplingInterval},
+			},
+		}),
 		middleware.RecoverMiddleware(),
 		params.MetricsMiddleware,
 		middleware.InflightMiddleware(params.InflightTracker),
@@ -84,16 +93,7 @@ func registerMiddlewares(params middlewareParams) {
 			},
 		}),
 		middleware.CORSMiddleware(),
-		middleware.CompressMiddleware(),
-		middleware.TraceMiddleware(),
 		middleware.LocaleMiddleware(),
-		middleware.LogMiddleware(middleware.LogMiddlewareConfig{
-			SamplingRules: []middleware.LogSamplingRule{
-				{Path: constant.RoutePathHealth, Interval: constant.LogMiddlewareSamplingInterval},
-				{Path: constant.RoutePathReady, Interval: constant.LogMiddlewareSamplingInterval},
-				{Path: constant.RoutePathSSEHealth, Interval: constant.LogMiddlewareSamplingInterval},
-			},
-		}),
 	)
 	// pprof(fgprof) 调试端点与 /docs 同策略：生产环境不暴露。
 	// 原挂在 router 包 RegisterOpsRouter 内（路由注册函数带全局 Use，职责混淆），移归 bootstrap。

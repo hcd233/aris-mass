@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/samber/lo"
-	"go.uber.org/zap"
 
 	proxyutil "github.com/hcd233/aris-mass/internal/application/llmproxy/util"
 	"github.com/hcd233/aris-mass/internal/common/constant"
@@ -42,7 +41,7 @@ func (u *anthropicUseCase) storeAnthropicMessages(ctx context.Context, req *dto.
 		OutputTokens: outputTokens,
 		Metadata:     proxyutil.ExtractAnthropicMetadata(req.Body.Metadata),
 	}); err != nil {
-		log.Error("[AnthropicUseCase] Failed to submit message store task", zap.Error(err))
+		log.Error("[AnthropicUseCase] Failed to submit message store task", logger.ErrorFields(err)...)
 	}
 }
 
@@ -52,7 +51,7 @@ func (u *anthropicUseCase) convertAnthropicRequestMessages(ctx context.Context, 
 	for _, msg := range req.Body.Messages {
 		um, convErr := dto.FromAnthropicMessage(msg)
 		if convErr != nil {
-			log.Error("[AnthropicUseCase] Failed to convert anthropic message", zap.Error(convErr))
+			log.Error("[AnthropicUseCase] Failed to convert anthropic message", logger.ErrorFields(convErr)...)
 			return nil, nil, 0, 0, convErr
 		}
 		messages = append(messages, um)
@@ -60,7 +59,7 @@ func (u *anthropicUseCase) convertAnthropicRequestMessages(ctx context.Context, 
 
 	aiMsg, convErr := dto.FromAnthropicResponse(assistantMsg)
 	if convErr != nil {
-		log.Error("[AnthropicUseCase] Failed to convert anthropic response", zap.Error(convErr))
+		log.Error("[AnthropicUseCase] Failed to convert anthropic response", logger.ErrorFields(convErr)...)
 		return nil, nil, 0, 0, convErr
 	}
 	messages = append(messages, aiMsg)

@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/bytedance/sonic"
-	"go.uber.org/zap"
 
 	proxyutil "github.com/hcd233/aris-mass/internal/application/llmproxy/util"
 	"github.com/hcd233/aris-mass/internal/common/constant"
@@ -19,9 +18,7 @@ import (
 	"github.com/hcd233/aris-mass/internal/common/model"
 	"github.com/hcd233/aris-mass/internal/domain/llmproxy/vo"
 	"github.com/hcd233/aris-mass/internal/dto"
-	"github.com/hcd233/aris-mass/internal/infrastructure/httpclient"
 	"github.com/hcd233/aris-mass/internal/logger"
-	"github.com/hcd233/aris-mass/internal/util"
 
 	usecase "github.com/hcd233/aris-mass/internal/application/llmproxy/usecase"
 )
@@ -48,13 +45,13 @@ func (p *anthropicProxy) ForwardCreateMessage(ctx context.Context, ep vo.Upstrea
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Error("[AnthropicProxy] Read upstream response error", zap.Error(err))
+		log.Error("[AnthropicProxy] Read upstream response error", logger.ErrorFields(err)...)
 		return nil, &model.UpstreamConnectionError{Cause: err}
 	}
 
 	message := &dto.AnthropicMessage{}
 	if err := sonic.Unmarshal(respBody, message); err != nil {
-		log.Warn("[AnthropicProxy] Unmarshal upstream response error", zap.Error(err))
+		log.Warn("[AnthropicProxy] Unmarshal upstream response error", logger.ErrorFields(err)...)
 		return nil, &model.UpstreamConnectionError{Cause: err}
 	}
 
@@ -95,7 +92,7 @@ func (p *anthropicProxy) ReadCreateMessageStream(ctx context.Context, stream io.
 
 		if readErr != nil {
 			if readErr != io.EOF {
-				log.Warn("[AnthropicProxy] Read upstream sse error", zap.Error(readErr))
+				log.Warn("[AnthropicProxy] Read upstream sse error", logger.ErrorFields(readErr)...)
 				return nil, &model.UpstreamConnectionError{Cause: readErr}
 			}
 			break
@@ -113,11 +110,11 @@ func (p *anthropicProxy) ReadCreateMessageStream(ctx context.Context, stream io.
 func forwardAndAggregateSSEEvent(ctx context.Context, event dto.AnthropicSSEEvent, onEvent func(dto.AnthropicSSEEvent) error, agg *proxyutil.AnthropicSSEStreamAggregator) error {
 	log := logger.WithCtx(ctx)
 	if err := onEvent(event); err != nil {
-		log.Warn("[AnthropicProxy] OnEvent callback error", zap.Error(err))
+		log.Warn("[AnthropicProxy] OnEvent callback error", logger.ErrorFields(err)...)
 		return err
 	}
 	if err := agg.Add(event); err != nil {
-		log.Warn("[AnthropicProxy] Aggregate sse event error", zap.Error(err))
+		log.Warn("[AnthropicProxy] Aggregate sse event error", logger.ErrorFields(err)...)
 		return err
 	}
 	return nil
@@ -134,13 +131,13 @@ func (p *anthropicProxy) ForwardCountTokens(ctx context.Context, ep vo.UpstreamE
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Error("[AnthropicProxy] Read upstream response error", zap.Error(err))
+		log.Error("[AnthropicProxy] Read upstream response error", logger.ErrorFields(err)...)
 		return nil, ierr.Wrap(ierr.ErrProxyResponse, err, "read upstream response")
 	}
 
 	rsp := &dto.AnthropicTokensCount{}
 	if err := sonic.Unmarshal(respBody, rsp); err != nil {
-		log.Warn("[AnthropicProxy] Unmarshal upstream response error", zap.Error(err))
+		log.Warn("[AnthropicProxy] Unmarshal upstream response error", logger.ErrorFields(err)...)
 		return nil, ierr.Wrap(ierr.ErrProxyResponse, err, "unmarshal upstream response")
 	}
 
@@ -164,10 +161,10 @@ func (p *anthropicProxy) sendRequest(ctx context.Context, ep vo.UpstreamEndpoint
 		return nil, err
 	}
 
-	sendFn := func() (*http.Response, error) {
-		return p.sendRequestOnce(ctx, ep, path, body)
+	sendFn := func(attempt int) (*http.Response, error) {
+		return p.sendRequestOnce(ctx, ep, path, body, attempt)
 	}
-	resp, err := SendUpstreamWithRetry(ctx, constant.ModuleAnthropicProxy, sendFn)
+	resp, err := SendUpstreamWithRetry(ctx, constant.ModuleAnthropicProxy, sendFn, upstreamFields(ctx, ep, path)...)
 	if err != nil || resp == nil {
 		// 未拿到响应体：立即结束租约并上报结果
 		lease.Done(!IsCircuitError(err))
@@ -181,7 +178,7 @@ func (p *anthropicProxy) sendRequest(ctx context.Context, ep vo.UpstreamEndpoint
 }
 
 // sendRequestOnce 执行单次 Anthropic 协议上游请求发送（不含重试逻辑）
-func (p *anthropicProxy) sendRequestOnce(ctx context.Context, ep vo.UpstreamEndpoint, path string, body []byte) (*http.Response, error) {
+func (p *anthropicProxy) sendRequestOnce(ctx context.Context, ep vo.UpstreamEndpoint, path string, body []byte, attempt int) (*http.Response, error) {
 	log := logger.WithCtx(ctx)
 
 	upstreamURL := strings.TrimRight(ep.BaseURL, "/") + path
@@ -190,7 +187,7 @@ func (p *anthropicProxy) sendRequestOnce(ctx context.Context, ep vo.UpstreamEndp
 	if ep.AuthType == enum.EndpointAuthOAuthAnthropic {
 		transformed, terr := transformAnthropicOAuthBody(body, ep)
 		if terr != nil {
-			log.Error("[AnthropicProxy] OAuth body transform error", zap.Error(terr))
+			log.Error("[AnthropicProxy] OAuth body transform error", logger.ErrorFields(terr)...)
 			return nil, terr
 		}
 		body = transformed
@@ -198,7 +195,7 @@ func (p *anthropicProxy) sendRequestOnce(ctx context.Context, ep vo.UpstreamEndp
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, upstreamURL, bytes.NewReader(body))
 	if err != nil {
-		log.Error("[AnthropicProxy] New request error", zap.String("upstreamURL", upstreamURL), zap.Error(err))
+		log.Error("[AnthropicProxy] New request error", logger.ErrorFields(err)...)
 		return nil, ierr.Wrap(ierr.ErrProxyRequest, err, "create request")
 	}
 
@@ -215,35 +212,5 @@ func (p *anthropicProxy) sendRequestOnce(ctx context.Context, ep vo.UpstreamEndp
 	req.Header.Set(constant.HTTPHeaderContentType, constant.HTTPContentTypeJSON)
 	req.Header.Set(constant.HTTPHeaderAnthropicVersion, constant.AnthropicAPIVersion)
 
-	log.Info("[AnthropicProxy] Send upstream request", zap.String("upstreamURL", upstreamURL),
-		zap.String("upstreamModel", ep.Model),
-		zap.String("upstreamCredential", upstreamCredLabel(ep)),
-		zap.Any("upstreamHeaders", util.MaskHTTPHeadersForLog(req.Header)),
-		zap.Any("upstreamRequestSummary", parseUpstreamRequestSummary(body)),
-	)
-
-	resp, err := httpclient.GetEndpointHTTPClient(ep.AuthType).Do(req)
-	if err != nil {
-		return nil, &model.UpstreamConnectionError{Cause: err}
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		errorBody, _ := io.ReadAll(resp.Body) //nolint:errcheck // read best effort on error path
-		_ = resp.Body.Close()                 //nolint:errcheck // close best effort on error path
-		log.Error("[AnthropicProxy] Upstream returned non-200 status",
-			zap.Int("statusCode", resp.StatusCode),
-			zap.String("upstreamURL", upstreamURL),
-			zap.String("upstreamModel", ep.Model),
-			zap.String("responseBody", string(errorBody)),
-		)
-		return nil, &model.UpstreamError{
-			StatusCode: resp.StatusCode,
-			Headers:    capturePassthroughResponseHeaders(resp.Header),
-			Body:       string(errorBody),
-		}
-	}
-
-	storePassthroughResponseHeaders(ctx, resp.Header)
-
-	return resp, nil
+	return sendUpstreamHTTP(ctx, constant.ModuleAnthropicProxy, path, ep, attempt, req, body)
 }

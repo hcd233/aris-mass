@@ -8,7 +8,6 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/samber/lo"
-	"go.uber.org/zap"
 
 	"github.com/hcd233/aris-mass/internal/application/llmproxy/converter"
 	"github.com/hcd233/aris-mass/internal/application/llmproxy/port"
@@ -33,7 +32,7 @@ func (u *anthropicUseCase) forwardMessageViaChat(ctx context.Context, req *dto.A
 	conv := &converter.OpenAIProtocolConverter{}
 	chatReq, convErr := conv.FromAnthropicRequest(req.Body)
 	if convErr != nil {
-		logger.WithCtx(ctx).Error("[AnthropicUseCase] Failed to convert anthropic request to chat", zap.Error(convErr))
+		logger.WithCtx(ctx).Error("[AnthropicUseCase] Failed to convert anthropic request to chat", logger.ErrorFields(convErr)...)
 		return nil, proxyutil.SendAnthropicModelNotFoundError(exposedModel)
 	}
 	stream := req.Body.Stream != nil && *req.Body.Stream
@@ -141,7 +140,7 @@ func (u *anthropicUseCase) forwardMessageViaChatUnary(ctx context.Context, req *
 	}
 	anthropicMsg, convErr := conv.ToAnthropicResponse(completion)
 	if convErr != nil {
-		logger.WithCtx(ctx).Error("[AnthropicUseCase] Failed to convert chat completion to anthropic message", zap.Error(convErr))
+		logger.WithCtx(ctx).Error("[AnthropicUseCase] Failed to convert chat completion to anthropic message", logger.ErrorFields(convErr)...)
 		return nil, &port.ProxyError{
 			StatusCode: http.StatusInternalServerError,
 			Headers:    map[string]string{constant.HTTPHeaderContentType: constant.HTTPContentTypeJSON},
@@ -197,14 +196,14 @@ func (s *anthropicMessageNativeStream) Read(ctx context.Context, sink port.Event
 	s.timer.finish()
 	if err == nil {
 		if writeErr := proxyutil.WriteAnthropicMessageStop(sink); writeErr != nil {
-			logger.WithCtx(ctx).Debug("[AnthropicUseCase] Failed to write message_stop", zap.Error(writeErr))
+			logger.WithCtx(ctx).Debug("[AnthropicUseCase] Failed to write message_stop", logger.ErrorFields(writeErr)...)
 		}
 	} else {
 		proxyutil.WriteUpstreamSSEError(ctx, sink, err, enum.ProtocolKindAnthropic)
 	}
 
 	s.u.storeAnthropicFromMsg(s.ctx, s.req, anthropicMsg, err, s.m.ModelID())
-	recordModelCall(ctx, s.u.taskSubmitter, s.u.tokenMetrics, callOutcome{
+	recordModelCall(s.ctx, s.u.taskSubmitter, s.u.tokenMetrics, callOutcome{
 		model:               s.m,
 		endpoint:            s.endpoint,
 		upstreamProtocol:    enum.ProtocolAnthropicMessage,
@@ -214,7 +213,7 @@ func (s *anthropicMessageNativeStream) Read(ctx context.Context, sink port.Event
 		usage:               anthropicTokenUsage{anthropicMsg},
 		err:                 err,
 	})
-	return nil
+	return err
 }
 
 // Close 兜底关闭上游 body：Read 内部已 defer Close，此处覆盖 adapter 未调用 Read
@@ -265,7 +264,7 @@ func (s *anthropicMessageViaChatStream) Read(ctx context.Context, sink port.Even
 	if completion != nil {
 		usage = completion.Usage
 	}
-	recordModelCall(ctx, s.u.taskSubmitter, s.u.tokenMetrics, callOutcome{
+	recordModelCall(s.ctx, s.u.taskSubmitter, s.u.tokenMetrics, callOutcome{
 		model:               s.m,
 		endpoint:            s.endpoint,
 		upstreamProtocol:    enum.ProtocolOpenAIChatCompletion,
@@ -275,7 +274,7 @@ func (s *anthropicMessageViaChatStream) Read(ctx context.Context, sink port.Even
 		usage:               openAITokenUsage{usage},
 		err:                 err,
 	})
-	return nil
+	return err
 }
 
 // Close 兜底关闭上游 body：Read 内部已 defer Close，此处覆盖 adapter 未调用 Read

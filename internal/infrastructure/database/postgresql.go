@@ -13,6 +13,7 @@ import (
 	"github.com/hcd233/aris-mass/internal/config"
 	"github.com/hcd233/aris-mass/internal/infrastructure/database/model"
 	"github.com/hcd233/aris-mass/internal/logger"
+	"github.com/hcd233/aris-mass/internal/util"
 	"github.com/samber/lo"
 	"go.uber.org/zap"
 	"gorm.io/driver/postgres"
@@ -201,6 +202,11 @@ func (l *GormLoggerAdapter) Error(ctx context.Context, msg string, data ...any) 
 	logger.WithCtx(ctx).Error("[GORM] Error", zap.String("msg", fmt.Sprintf(msg, data...)))
 }
 
+// ParamsFilter keeps the SQL template and discards bound values before GORM renders it.
+func (l *GormLoggerAdapter) ParamsFilter(_ context.Context, sql string, _ ...any) (template string, args []any) {
+	return sql, nil
+}
+
 // Trace 打印trace级别的日志
 //
 //	receiver l *GormLogger
@@ -215,15 +221,15 @@ func (l *GormLoggerAdapter) Trace(ctx context.Context, begin time.Time, fc func(
 	sql, rows := fc()
 
 	fields := []zap.Field{
-		zap.String("sql", sql),
+		zap.String("event", "db.statement.finished"),
+		zap.String("sql", util.TruncateFieldValue(sql, constant.LogSQLTemplateMaxBytes)),
 		zap.Int64("rows", rows),
-		zap.String("elapsed", elapsed.String()),
+		zap.Int64("durationMs", elapsed.Milliseconds()),
 	}
 	if err != nil {
-		fields = append(fields, zap.Error(err))
-		logger.WithCtx(ctx).Error("[GORM] Trace", fields...)
+		logger.WithCtx(ctx).Error("[GORM] Statement failed", append(fields, logger.ErrorFields(err)...)...)
 		return
 	}
 
-	logger.WithCtx(ctx).Info("[GORM] Trace", fields...)
+	logger.WithCtx(ctx).Info("[GORM] Statement finished", fields...)
 }

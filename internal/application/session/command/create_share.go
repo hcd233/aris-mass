@@ -36,7 +36,7 @@ func (h *createShareHandler) Handle(ctx context.Context, cmd port.CreateShareCom
 	})
 	if err != nil {
 		log.Error("[SessionCommand] CreateShare: verify session failed",
-			zap.Uint("sessionID", cmd.SessionID), zap.Error(err))
+			append(logger.ErrorFields(err), zap.Uint("sessionID", cmd.SessionID))...)
 		return nil, err
 	}
 	if view == nil {
@@ -53,12 +53,11 @@ func (h *createShareHandler) Handle(ctx context.Context, cmd port.CreateShareCom
 	shareID, expiresAt, err := h.shareCache.CreateShare(ctx, cmd.RequesterID, cmd.SessionID, ttl)
 	if err != nil {
 		log.Error("[SessionCommand] CreateShare: create share failed",
-			zap.Uint("sessionID", cmd.SessionID), zap.Error(err))
+			append(logger.ErrorFields(err), zap.Uint("sessionID", cmd.SessionID))...)
 		return nil, err
 	}
 
 	log.Info("[SessionCommand] Share created",
-		zap.String("shareID", shareID),
 		zap.Uint("sessionID", cmd.SessionID),
 		zap.Uint("userID", cmd.RequesterID))
 

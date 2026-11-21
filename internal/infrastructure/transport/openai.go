@@ -19,9 +19,7 @@ import (
 	"github.com/hcd233/aris-mass/internal/common/model"
 	"github.com/hcd233/aris-mass/internal/domain/llmproxy/vo"
 	"github.com/hcd233/aris-mass/internal/dto"
-	"github.com/hcd233/aris-mass/internal/infrastructure/httpclient"
 	"github.com/hcd233/aris-mass/internal/logger"
-	"github.com/hcd233/aris-mass/internal/util"
 	"github.com/samber/mo"
 
 	usecase "github.com/hcd233/aris-mass/internal/application/llmproxy/usecase"
@@ -49,13 +47,13 @@ func (p *openAIProxy) ForwardChatCompletion(ctx context.Context, ep vo.UpstreamE
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Error("[OpenAIProxy] Read upstream response error", zap.Error(err))
+		log.Error("[OpenAIProxy] Read upstream response error", logger.ErrorFields(err)...)
 		return nil, &model.UpstreamConnectionError{Cause: err}
 	}
 
 	completion := &dto.OpenAIChatCompletion{}
 	if err := sonic.Unmarshal(respBody, completion); err != nil {
-		log.Warn("[OpenAIProxy] Unmarshal upstream response error", zap.Error(err))
+		log.Warn("[OpenAIProxy] Unmarshal upstream response error", logger.ErrorFields(err)...)
 		return nil, &model.UpstreamConnectionError{Cause: err}
 	}
 
@@ -83,19 +81,19 @@ func (p *openAIProxy) ReadChatCompletionStream(ctx context.Context, stream io.Re
 
 		if readErr != nil {
 			if readErr != io.EOF {
-				log.Warn("[OpenAIProxy] Read upstream sse error", zap.Error(readErr))
+				log.Warn("[OpenAIProxy] Read upstream sse error", logger.ErrorFields(readErr)...)
 				return nil, &model.UpstreamConnectionError{Cause: readErr}
 			}
 			break
 		}
 
-		chunk, ok := parseSSEDataLine(line).Get()
+		chunk, ok := parseSSEDataLine(ctx, line).Get()
 		if !ok {
 			continue
 		}
 		agg.Add(chunk)
 		if err := onChunk(chunk); err != nil {
-			log.Warn("[OpenAIProxy] OnChunk callback error", zap.Error(err))
+			log.Warn("[OpenAIProxy] OnChunk callback error", logger.ErrorFields(err)...)
 			return nil, err
 		}
 	}
@@ -107,7 +105,7 @@ func (p *openAIProxy) ReadChatCompletionStream(ctx context.Context, stream io.Re
 	return agg.Completion(), nil
 }
 
-func parseSSEDataLine(line string) mo.Option[*dto.OpenAIChatCompletionChunk] {
+func parseSSEDataLine(ctx context.Context, line string) mo.Option[*dto.OpenAIChatCompletionChunk] {
 	if !strings.HasPrefix(line, constant.SSEDataPrefix) {
 		return mo.None[*dto.OpenAIChatCompletionChunk]()
 	}
@@ -117,7 +115,7 @@ func parseSSEDataLine(line string) mo.Option[*dto.OpenAIChatCompletionChunk] {
 	}
 	chunk := &dto.OpenAIChatCompletionChunk{}
 	if err := sonic.UnmarshalString(payload, chunk); err != nil {
-		zap.L().Warn("[OpenAIProxy] Unmarshal sse chunk error", zap.String("payload", payload), zap.Error(err))
+		logger.WithCtx(ctx).Warn("[OpenAIProxy] Unmarshal sse chunk error", append(logger.ErrorFields(err), zap.Int("chunkBytes", len(payload)))...)
 		return mo.None[*dto.OpenAIChatCompletionChunk]()
 	}
 	return mo.Some(chunk)
@@ -140,10 +138,10 @@ func (p *openAIProxy) doUpstreamRequest(ctx context.Context, ep vo.UpstreamEndpo
 		return nil, err
 	}
 
-	sendFn := func() (*http.Response, error) {
-		return p.sendUpstreamRequestOnce(ctx, ep, body, pathSuffix)
+	sendFn := func(attempt int) (*http.Response, error) {
+		return p.sendUpstreamRequestOnce(ctx, ep, body, pathSuffix, attempt)
 	}
-	resp, err := SendUpstreamWithRetry(ctx, constant.ModuleOpenAIProxy, sendFn)
+	resp, err := SendUpstreamWithRetry(ctx, constant.ModuleOpenAIProxy, sendFn, upstreamFields(ctx, ep, pathSuffix)...)
 	if err != nil || resp == nil {
 		// 未拿到响应体：立即结束租约并上报结果
 		lease.Done(!IsCircuitError(err))
@@ -157,7 +155,7 @@ func (p *openAIProxy) doUpstreamRequest(ctx context.Context, ep vo.UpstreamEndpo
 }
 
 // sendUpstreamRequestOnce 执行单次上游 HTTP 请求发送（不含重试逻辑）
-func (p *openAIProxy) sendUpstreamRequestOnce(ctx context.Context, ep vo.UpstreamEndpoint, body []byte, pathSuffix string) (*http.Response, error) {
+func (p *openAIProxy) sendUpstreamRequestOnce(ctx context.Context, ep vo.UpstreamEndpoint, body []byte, pathSuffix string, attempt int) (*http.Response, error) {
 	log := logger.WithCtx(ctx)
 
 	upstreamURL := strings.TrimRight(ep.BaseURL, "/") + pathSuffix
@@ -166,7 +164,7 @@ func (p *openAIProxy) sendUpstreamRequestOnce(ctx context.Context, ep vo.Upstrea
 	if ep.AuthType == enum.EndpointAuthOAuthOpenAI {
 		transformed, terr := transformCodexOAuthBody(body)
 		if terr != nil {
-			log.Error("[OpenAIProxy] OAuth body transform error", zap.Error(terr))
+			log.Error("[OpenAIProxy] OAuth body transform error", logger.ErrorFields(terr)...)
 			return nil, terr
 		}
 		body = transformed
@@ -174,7 +172,7 @@ func (p *openAIProxy) sendUpstreamRequestOnce(ctx context.Context, ep vo.Upstrea
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, upstreamURL, bytes.NewReader(body))
 	if err != nil {
-		log.Error("[OpenAIProxy] New request error", zap.String("upstreamURL", upstreamURL), zap.Error(err))
+		log.Error("[OpenAIProxy] New request error", logger.ErrorFields(err)...)
 		return nil, ierr.Wrap(ierr.ErrProxyRequest, err, "create request")
 	}
 
@@ -189,37 +187,7 @@ func (p *openAIProxy) sendUpstreamRequestOnce(ctx context.Context, ep vo.Upstrea
 		req.Header.Set(constant.HTTPHeaderAuthorization, constant.HTTPAuthBearerPrefix+ep.APIKey)
 	}
 
-	log.Info("[OpenAIProxy] Send upstream request", zap.String("upstreamURL", upstreamURL),
-		zap.String("upstreamModel", ep.Model),
-		zap.String("upstreamCredential", upstreamCredLabel(ep)),
-		zap.Any("upstreamHeaders", util.MaskHTTPHeadersForLog(req.Header)),
-		zap.Any("upstreamRequestSummary", parseUpstreamRequestSummary(body)),
-	)
-
-	resp, err := httpclient.GetEndpointHTTPClient(ep.AuthType).Do(req)
-	if err != nil {
-		return nil, &model.UpstreamConnectionError{Cause: err}
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		errorBody, _ := io.ReadAll(resp.Body) //nolint:errcheck // read best effort on error path
-		_ = resp.Body.Close()                 //nolint:errcheck // close best effort on error path
-		log.Error("[OpenAIProxy] Upstream returned non-200 status",
-			zap.Int("statusCode", resp.StatusCode),
-			zap.String("upstreamURL", upstreamURL),
-			zap.String("upstreamModel", ep.Model),
-			zap.String("responseBody", string(errorBody)),
-		)
-		return nil, &model.UpstreamError{
-			StatusCode: resp.StatusCode,
-			Headers:    capturePassthroughResponseHeaders(resp.Header),
-			Body:       string(errorBody),
-		}
-	}
-
-	storePassthroughResponseHeaders(ctx, resp.Header)
-
-	return resp, nil
+	return sendUpstreamHTTP(ctx, constant.ModuleOpenAIProxy, pathSuffix, ep, attempt, req, body)
 }
 
 func (p *openAIProxy) ForwardCreateResponse(ctx context.Context, ep vo.UpstreamEndpoint, body []byte) ([]byte, error) {
@@ -233,7 +201,7 @@ func (p *openAIProxy) ForwardCreateResponse(ctx context.Context, ep vo.UpstreamE
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Error("[OpenAIProxy] Read response api upstream response error", zap.Error(err))
+		log.Error("[OpenAIProxy] Read response api upstream response error", logger.ErrorFields(err)...)
 		return nil, &model.UpstreamConnectionError{Cause: err}
 	}
 
@@ -260,7 +228,7 @@ func (p *openAIProxy) ForwardCreateDecision(ctx context.Context, ep vo.UpstreamE
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Error("[OpenAIProxy] Read decision upstream response error", zap.Error(err))
+		log.Error("[OpenAIProxy] Read decision upstream response error", logger.ErrorFields(err)...)
 		return nil, &model.UpstreamConnectionError{Cause: err}
 	}
 
@@ -284,7 +252,7 @@ func (p *openAIProxy) ReadCreateResponseStream(ctx context.Context, stream io.Re
 			} else if strings.HasPrefix(line, constant.SSEDataPrefix) {
 				payload := line[len(constant.SSEDataPrefix):]
 				if err := onEvent(currentEvent, []byte(payload)); err != nil {
-					log.Warn("[OpenAIProxy] Response API onEvent callback error", zap.Error(err))
+					log.Warn("[OpenAIProxy] Response API onEvent callback error", logger.ErrorFields(err)...)
 					return err
 				}
 				currentEvent = ""
@@ -293,7 +261,7 @@ func (p *openAIProxy) ReadCreateResponseStream(ctx context.Context, stream io.Re
 
 		if readErr != nil {
 			if readErr != io.EOF {
-				log.Warn("[OpenAIProxy] Read response api upstream sse error", zap.Error(readErr))
+				log.Warn("[OpenAIProxy] Read response api upstream sse error", logger.ErrorFields(readErr)...)
 				return &model.UpstreamConnectionError{Cause: readErr}
 			}
 			break

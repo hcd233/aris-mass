@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humafiber"
@@ -13,7 +14,9 @@ import (
 	"github.com/hcd233/aris-mass/internal/application/llmproxy/port"
 	"github.com/hcd233/aris-mass/internal/common/constant"
 	"github.com/hcd233/aris-mass/internal/common/ierr"
+	"github.com/hcd233/aris-mass/internal/logger"
 	"github.com/hcd233/aris-mass/internal/util"
+	"go.uber.org/zap"
 )
 
 // sseWriter 实现 port.EventSink，将协议事件编码为 SSE 帧写入 bufio.Writer。
@@ -22,7 +25,8 @@ import (
 // event 为空时输出 "data: <data>\n\n"（OpenAI Chat data-only 格式）。
 // 每次写入后 Flush，使下游 fasthttp 立即发送。
 type sseWriter struct {
-	w *bufio.Writer
+	w        *bufio.Writer
+	writeErr error
 }
 
 // NewSSEWriter 创建一个写 bufio.Writer 的 port.EventSink。
@@ -31,15 +35,20 @@ func NewSSEWriter(w *bufio.Writer) port.EventSink {
 }
 
 func (s *sseWriter) WriteEvent(event string, data []byte) error {
+	var err error
 	if event != "" {
-		if _, err := fmt.Fprintf(s.w, constant.SSEEventLineTemplate, event); err != nil {
-			return err
-		}
+		_, err = fmt.Fprintf(s.w, constant.SSEEventLineTemplate, event)
 	}
-	if _, err := fmt.Fprintf(s.w, constant.SSEDataLineTemplate, data); err != nil {
-		return err
+	if err == nil {
+		_, err = fmt.Fprintf(s.w, constant.SSEDataLineTemplate, data)
 	}
-	return s.w.Flush()
+	if err == nil {
+		err = s.w.Flush()
+	}
+	if s.writeErr == nil {
+		s.writeErr = err
+	}
+	return err
 }
 
 // AdaptProxyResult 把 application 层的 transport-neutral 结果转换为 *huma.StreamResponse。
@@ -123,7 +132,9 @@ func wrapStreamResult(ctx context.Context, r *port.StreamResult, fallbackBody []
 			// 流关闭必须发生在 Read 结束之后：SendStreamWriter 的 writer 由 fasthttp
 			// 以独立 goroutine 执行（NewStreamReader），若在 body callback 里 defer Close，
 			// 会在 Read 开始前就关闭上游 body，把正在进行的流转断。
+			logCtx := util.CopyContextValues(ctx)
 			if sendErr := fiberCtx.SendStreamWriter(func(w *bufio.Writer) {
+				started := time.Now()
 				defer func() { _ = stream.Close() }() //nolint:errcheck // stream close errors are best-effort during shutdown
 				if lc.onStart != nil {
 					lc.onStart()
@@ -131,10 +142,27 @@ func wrapStreamResult(ctx context.Context, r *port.StreamResult, fallbackBody []
 				if lc.onEnd != nil {
 					defer lc.onEnd()
 				}
-				sink := NewSSEWriter(w)
-				_ = stream.Read(ctx, sink) //nolint:errcheck // stream read errors propagate via SSE error frames written by application
+				sink := &sseWriter{w: w}
+				err := stream.Read(ctx, sink)
+				if err == nil {
+					err = sink.writeErr
+				}
+				log := logger.WithCtx(logCtx)
+				fields := []zap.Field{
+					zap.String("event", "llm.stream.finished"),
+					zap.String("apiProtocol", string(r.Protocol)),
+					zap.Int64("durationMs", time.Since(started).Milliseconds()),
+				}
+				if err != nil {
+					fields = append(fields, zap.String("outcome", constant.LogOutcomeFailed))
+					log.Warn("[ProxyStream] Stream ended with an error", append(fields, logger.ErrorFields(err)...)...)
+					return
+				}
+				log.Info("[ProxyStream] Stream finished", append(fields, zap.String("outcome", constant.LogOutcomeSuccess))...)
 			}); sendErr != nil {
 				_ = stream.Close() //nolint:errcheck // best-effort close when the stream writer cannot be registered
+				logger.WithCtx(logCtx).Error("[ProxyStream] Register stream writer failed",
+					append(logger.ErrorFields(sendErr), zap.String("event", "llm.stream.registration_failed"))...)
 			}
 		},
 	}

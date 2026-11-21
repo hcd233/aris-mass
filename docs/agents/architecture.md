@@ -4,7 +4,8 @@
 
 - Go `1.25.1` 后端，提供 LLM 代理网关、用户、API Key、会话管理。
 - 服务端入口：`cmd/server/main.go` → `execute()` → `cmd/server/server.go` 的 `server start`；客户端入口位于 `cmd/client/`。
-- 启动链路：database、Redis、共享 HTTP Client、Pond 协程池 → `inflight.InitTracker()` → cron（5 个模块，CronRegistryEntry 模式，含 think-extract）→ Fiber 中间件链（Recover → Inflight → Guard → Fgprof → CORS → Compress → Trace → Log 采样）→ 可选 `/docs` → API 路由。
+- 启动链路：database、Redis、共享 HTTP Client、Pond 协程池 → `inflight.InitTracker()` → cron（5 个模块，CronRegistryEntry 模式，含 think-extract）→ Fiber 中间件链（Trace → Compress → Log → Recover → Metrics → Inflight → Guard → CORS → Locale；开发环境附加 Fgprof）→ 可选 `/docs` → API 路由。
+- 后端排障日志按 `traceID` 关联入口、上游、流消费和落库。字段与脱敏约定见[后端日志规范](../superpowers/specs/2026-11-21-backend-logging-design.md)。
 - 请求链路：Fiber 中间件 → Huma 路由 → handler → application usecase/command → domain service → infrastructure repository/transport。
 - 依赖注入：`go.uber.org/dig`，全部在 `internal/bootstrap/container.go` 中注册。
 - LLM 代理分层：`application/llmproxy/usecase` 编排端点查找、转换、代理和存储；`infrastructure/transport` 做 HTTP/SSE 传输；`application/llmproxy/converter` 做 DTO 映射。

@@ -35,7 +35,7 @@ func NewListOpenAIModels(readRepo llmproxy.EndpointReadRepository) ListOpenAIMod
 func (q *listOpenAIModels) Handle(ctx context.Context) (*dto.OpenAIListModelsRsp, error) {
 	projections, err := q.readRepo.ListAliases(ctx, util.CtxValueUint(ctx, constant.CtxKeyUserID))
 	if err != nil {
-		logger.WithCtx(ctx).Error("[OpenAIQuery] Failed to query models", zap.Error(err))
+		logger.WithCtx(ctx).Error("[OpenAIQuery] Failed to query models", logger.ErrorFields(err)...)
 		return &dto.OpenAIListModelsRsp{Object: constant.OpenAIListObject, Data: []*dto.OpenAIModel{}}, nil
 	}
 	return &dto.OpenAIListModelsRsp{
@@ -67,7 +67,7 @@ func NewListAnthropicModels(readRepo llmproxy.EndpointReadRepository) ListAnthro
 func (q *listAnthropicModels) Handle(ctx context.Context) (*dto.AnthropicListModelsRsp, error) {
 	projections, err := q.readRepo.ListAliases(ctx, util.CtxValueUint(ctx, constant.CtxKeyUserID))
 	if err != nil {
-		logger.WithCtx(ctx).Error("[AnthropicQuery] Failed to query models", zap.Error(err))
+		logger.WithCtx(ctx).Error("[AnthropicQuery] Failed to query models", logger.ErrorFields(err)...)
 		return &dto.AnthropicListModelsRsp{Data: []*dto.AnthropicModelInfo{}}, nil
 	}
 	models := lo.Map(projections, func(p *llmproxy.ModelAliasProjection, _ int) *dto.AnthropicModelInfo {
@@ -110,7 +110,7 @@ func (q *countTokens) Handle(ctx context.Context, req *dto.AnthropicCountTokensR
 	}
 	candidates, err := q.resolver.ResolveCandidates(ctx, userID, vo.EndpointAlias(req.Body.Model), (*aggregate.Endpoint).SupportAnthropicMessage)
 	if err != nil {
-		log.Warn("[AnthropicQuery] Model lookup error, returning 0", zap.String("model", req.Body.Model), zap.Error(err))
+		log.Warn("[AnthropicQuery] Model lookup error, returning 0", append(logger.ErrorFields(err), zap.String("model", req.Body.Model))...)
 		return &dto.AnthropicTokensCount{}, nil
 	}
 	if len(candidates) == 0 {
@@ -118,16 +118,26 @@ func (q *countTokens) Handle(ctx context.Context, req *dto.AnthropicCountTokensR
 		return &dto.AnthropicTokensCount{}, nil
 	}
 	candidate := candidates[0]
+	ctx = context.WithValue(ctx, constant.CtxKeyEndpointAttempt, uint(1))
+	log.Info("[AnthropicQuery] Trying endpoint",
+		zap.String("event", "llm.route.attempt"),
+		zap.String("model", logger.Identifier(req.Body.Model)),
+		zap.Uint("endpointID", candidate.Endpoint.AggregateID()),
+		zap.String("endpoint", candidate.Endpoint.Name()),
+		zap.String("upstreamModel", logger.Identifier(candidate.Model.UpstreamModel())),
+		zap.Int("endpointAttempt", 1),
+		zap.Int("candidateCount", len(candidates)),
+	)
 	upstream, err := buildTransportEndpointWithToken(ctx, candidate.Model, candidate.Endpoint, true, q.tokenProvider)
 	if err != nil {
-		log.Warn("[AnthropicQuery] Build upstream endpoint failed", zap.String("model", req.Body.Model), zap.Error(err))
+		log.Warn("[AnthropicQuery] Build upstream endpoint failed", append(logger.ErrorFields(err), zap.String("model", req.Body.Model))...)
 		return nil, err
 	}
 	body := proxyutil.MarshalAnthropicCountTokensBodyForModel(req.Body, upstream.Model)
 
 	rsp, err := q.proxy.ForwardCountTokens(ctx, upstream, body)
 	if err != nil {
-		log.Warn("[AnthropicQuery] Count tokens error, returning 0", zap.Error(err))
+		log.Warn("[AnthropicQuery] Count tokens error, returning 0", logger.ErrorFields(err)...)
 		return &dto.AnthropicTokensCount{}, nil
 	}
 	return rsp, nil

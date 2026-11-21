@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"fmt"
 	"runtime/debug"
 
 	"github.com/bytedance/sonic"
@@ -27,7 +28,8 @@ func RecoverMiddleware() fiber.Handler {
 		EnableStackTrace: true,
 		StackTraceHandler: func(c fiber.Ctx, e any) {
 			logger.WithFCtx(c).Error("[PanicRecovery] Recovered panic",
-				zap.Any("error", e),
+				zap.String("event", "http.request.panic"),
+				zap.String("panicType", fmt.Sprintf("%T", e)),
 				zap.ByteString("stack", debug.Stack()))
 		},
 		PanicHandler: func(c fiber.Ctx, _ any) error {

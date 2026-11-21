@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"errors"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -9,46 +11,23 @@ import (
 	"github.com/gofiber/fiber/v3"
 	"github.com/hcd233/aris-mass/internal/common/constant"
 	"github.com/hcd233/aris-mass/internal/logger"
-	"github.com/hcd233/aris-mass/internal/util"
 	"github.com/samber/lo"
 	"go.uber.org/zap"
 )
 
-// LogSamplingRule 日志采样规则
-//
-//	@author centonhuang
-//	@update 2026-03-30 10:00:00
+// LogSamplingRule limits successful access logs for one path.
 type LogSamplingRule struct {
-	Path     string        // 需要采样的路径
-	Interval time.Duration // 采样间隔，在此时间内最多打印一次日志
+	Path     string
+	Interval time.Duration
 }
 
-// LogMiddlewareConfig 日志中间件配置
-//
-//	@author centonhuang
-//	@update 2026-03-30 10:00:00
 type LogMiddlewareConfig struct {
-	SamplingRules []LogSamplingRule // 路径采样规则列表
+	SamplingRules []LogSamplingRule
 }
 
-// logSampler 日志采样器，记录每个路径的上次打印时间
 type logSampler struct {
 	mu       sync.Mutex
 	lastLogs map[string]time.Time
-}
-
-// sensitiveHeaders 需要掩码的敏感头列表
-var sensitiveHeaders = []string{
-	constant.HTTPHeaderAuthorization,
-	constant.HTTPHeaderAPIKey,
-	constant.HTTPHeaderProxyAuthorization,
-	constant.HTTPHeaderCookie,
-	constant.HTTPHeaderSetCookie,
-}
-
-// isSensitiveHeader 判断是否为需要掩码的敏感请求头
-func isSensitiveHeader(key string) bool {
-	return lo.ContainsBy(sensitiveHeaders, func(h string) bool { return strings.EqualFold(key, h) })
 }
 
 func (s *logSampler) shouldLog(path string, interval time.Duration) bool {
@@ -59,162 +38,118 @@ func (s *logSampler) shouldLog(path string, interval time.Duration) bool {
 	if last, ok := s.lastLogs[path]; ok && now.Sub(last) < interval {
 		return false
 	}
-	s.lastLogs[path] = now
+	s.lastLogs[strings.Clone(path)] = now
 	return true
 }
 
-func shouldSuppressLog(samplingIndex map[string]time.Duration, sampler *logSampler, path string, _ error) bool {
-	interval, ok := samplingIndex[path]
-	if !ok {
-		return false
-	}
-	return !sampler.shouldLog(path, interval)
+type loggedBusinessError struct {
+	Code int `json:"code"`
 }
 
-func buildRequestHeadersFields(c fiber.Ctx) []zap.Field {
-	reqHeaders := make(map[string]any)
-	for k, v := range c.Request().Header.All() {
-		key := string(k)
-		value := string(v)
-		if isSensitiveHeader(key) {
-			value = constant.MaskSecretPlaceholder
+type loggedBusinessEnvelope struct {
+	Error loggedBusinessError `json:"error"`
+}
+
+func queryLogFields(c fiber.Ctx) []zap.Field {
+	args := c.Request().URI().QueryArgs()
+	var fields []zap.Field
+	for _, key := range constant.LogQueryNumberParams {
+		raw := args.Peek(key)
+		if len(raw) == 0 || len(raw) > constant.LogIdentifierMaxBytes {
+			continue
 		}
-		reqHeaders[key] = value
-	}
-	return []zap.Field{zap.Dict("request-headers", lo.MapToSlice(reqHeaders, func(key string, value any) zap.Field {
-		return zap.Any(key, value)
-	})...)}
-}
-
-func buildRequestBodyFields(c fiber.Ctx) []zap.Field {
-	if !strings.Contains(string(c.Request().Header.ContentType()), constant.HTTPContentTypeJSON) {
-		return nil
-	}
-	body := c.Body()
-	if len(body) == 0 {
-		return nil
-	}
-	if len(body) > constant.LogMiddlewareBodyMaxBytes {
-		return []zap.Field{zap.String("request", bodyPreview(body))}
-	}
-	request := make(map[string]any)
-	if jsonErr := sonic.Unmarshal(body, &request); jsonErr != nil {
-		return []zap.Field{zap.String("request", bodyPreview(body))}
-	}
-	return []zap.Field{zap.Dict("request", lo.MapToSlice(request, func(key string, value any) zap.Field {
-		return zap.Any(key, value)
-	})...)}
-}
-
-func buildResponseBodyFields(c fiber.Ctx) []zap.Field {
-	contentType := string(c.Response().Header.ContentType())
-	if !strings.Contains(contentType, constant.HTTPContentTypeJSON) &&
-		!strings.Contains(contentType, constant.HTTPContentTypeProblemJSON) {
-		return nil
-	}
-	body := c.Response().Body()
-	if len(body) == 0 {
-		return nil
-	}
-	if len(body) > constant.LogMiddlewareBodyMaxBytes {
-		return []zap.Field{zap.String("response", bodyPreview(body))}
-	}
-	response := make(map[string]any)
-	if jsonErr := sonic.Unmarshal(body, &response); jsonErr != nil {
-		return []zap.Field{zap.String("response", bodyPreview(body))}
-	}
-	return []zap.Field{zap.Dict("response", lo.MapToSlice(response, func(key string, value any) zap.Field {
-		return zap.Any(key, value)
-	})...)}
-}
-
-// bodyPreview 把超长或不可解析的 body 截断成字符串字段，避免整段内容进入日志。
-func bodyPreview(body []byte) string {
-	return util.TruncateFieldValue(string(body), constant.LogMiddlewareBodyMaxBytes)
-}
-
-// ShouldLogResponseBody 判断是否记录响应体：只在失败现场记录。
-//
-// 请求体与响应体分开决策：
-//   - 请求体始终记录（超长/不可解析时截断到 LogMiddlewareBodyMaxBytes）：LLM 代理的
-//     prompt 只存在于请求体，审计表不存内容，成功请求丢请求体等于丢掉「这句话是谁问的」。
-//   - 响应体只在失败时记录：成功响应体是日志体积与 CPU 的主要来源（如
-//     session/message/list 的 310KB 响应需完整 JSON 解析后再编码一次）。
-//
-// 导出供回归测试断言策略（同 repository.FormatBigIntArray 的测试导出约定）。
-func ShouldLogResponseBody(err error, status int) bool {
-	return err != nil || status >= fiber.StatusBadRequest
-}
-
-func buildResponseHeadersFields(c fiber.Ctx) []zap.Field {
-	respHeaders := make(map[string]any)
-	for k, v := range c.Response().Header.All() {
-		key := string(k)
-		value := string(v)
-		if isSensitiveHeader(key) {
-			value = constant.MaskSecretPlaceholder
+		if _, err := strconv.ParseUint(string(raw), constant.DecimalBase, constant.ParseIntBitSize); err == nil {
+			fields = append(fields, zap.String(key, string(raw)))
 		}
-		respHeaders[key] = value
 	}
-	return []zap.Field{zap.Dict("response-headers", lo.MapToSlice(respHeaders, func(key string, value any) zap.Field {
-		return zap.Any(key, value)
-	})...)}
+	for _, key := range constant.LogQueryStringParams {
+		if value := logger.Identifier(string(args.Peek(key))); value != "" {
+			fields = append(fields, zap.String(key, value))
+		}
+	}
+	return fields
 }
 
-// LogMiddleware 日志中间件
-//
-//	@param cfg LogMiddlewareConfig
-//	@return fiber.Handler
-//	@author centonhuang
-//	@update 2026-03-30 10:00:00
+func responseBusinessCode(c fiber.Ctx) int {
+	resp := c.Response()
+	if resp.IsBodyStream() || len(resp.Header.Peek(fiber.HeaderContentEncoding)) != 0 ||
+		!logger.IsJSONContentType(string(resp.Header.ContentType())) {
+		return 0
+	}
+	body := resp.Body()
+	if len(body) == 0 || len(body) > constant.LogErrorInspectMaxBytes {
+		return 0
+	}
+	var envelope loggedBusinessEnvelope
+	if sonic.Unmarshal(body, &envelope) != nil {
+		return 0
+	}
+	return envelope.Error.Code
+}
+
+// LogMiddleware records response preparation. Stream execution is logged by the stream callback.
 func LogMiddleware(cfg LogMiddlewareConfig) fiber.Handler {
 	samplingIndex := lo.SliceToMap(cfg.SamplingRules, func(rule LogSamplingRule) (string, time.Duration) {
 		return rule.Path, rule.Interval
 	})
-
 	sampler := &logSampler{lastLogs: make(map[string]time.Time, len(cfg.SamplingRules))}
 
 	return func(c fiber.Ctx) error {
-		start := time.Now().UTC()
-		// c.Path() 零拷贝引用 fasthttp 可复用缓冲区，此处作为采样器 map 的长期 key，
-		// 并被后续异步上报引用，必须拷贝。
+		start := time.Now()
 		path := strings.Clone(c.Path())
-		query := string(c.Request().URI().QueryString())
-
 		err := c.Next()
-
-		if shouldSuppressLog(samplingIndex, sampler, path, err) {
-			return err
+		status := c.Response().StatusCode()
+		if err != nil {
+			var fiberErr *fiber.Error
+			if errors.As(err, &fiberErr) {
+				status = fiberErr.Code
+			} else {
+				status = fiber.StatusInternalServerError
+			}
+		}
+		bizCode := responseBusinessCode(c)
+		if err == nil && status < fiber.StatusBadRequest && bizCode == 0 {
+			if interval, ok := samplingIndex[path]; ok && !sampler.shouldLog(path, interval) {
+				return nil
+			}
 		}
 
-		log := logger.WithFCtx(c)
-		latency := time.Since(start)
+		outcome := constant.LogOutcomeSuccess
+		level := zap.InfoLevel
+		switch {
+		case status >= fiber.StatusInternalServerError:
+			outcome, level = constant.LogOutcomeServerError, zap.ErrorLevel
+		case status >= fiber.StatusBadRequest:
+			outcome, level = constant.LogOutcomeClientError, zap.WarnLevel
+		case bizCode != 0:
+			outcome, level = constant.LogOutcomeBusinessError, zap.WarnLevel
+		}
 
 		fields := []zap.Field{
-			zap.Int("status", c.Response().StatusCode()),
+			zap.String("event", "http.request.finished"),
+			zap.Int("status", status),
 			zap.String("method", c.Method()),
-			zap.String("path", path),
-			zap.String("query", query),
-			zap.String("ip", c.IP()),
-			zap.String("user-agent", c.Get("User-Agent")),
-			zap.String("latency", latency.String()),
+			zap.String("outcome", outcome),
+			zap.Int64("durationMs", time.Since(start).Milliseconds()),
+			zap.Bool("stream", c.Response().IsBodyStream()),
 		}
-
-		fields = append(fields, buildRequestHeadersFields(c)...)
-		fields = append(fields, buildResponseHeadersFields(c)...)
-		// 请求体始终记录：LLM 代理的 prompt 只在这里，且超长时已退化为截断字符串
-		fields = append(fields, buildRequestBodyFields(c)...)
-		if ShouldLogResponseBody(err, c.Response().StatusCode()) {
-			fields = append(fields, buildResponseBodyFields(c)...)
+		if c.Matched() {
+			fields = append(fields, zap.String("path", c.Route().Path))
 		}
-
-		if err != nil {
-			fields = append([]zap.Field{zap.Error(err)}, fields...)
-			log.Error("[LogMiddleware] Error", fields...)
-		} else {
-			log.Info("[LogMiddleware] Info", fields...)
+		if bizCode != 0 {
+			fields = append(fields, zap.Int("bizErrorCode", bizCode))
 		}
+		if query := queryLogFields(c); len(query) > 0 {
+			fields = append(fields, zap.Dict("queryParams", query...))
+		}
+		if !c.Request().IsBodyStream() {
+			inspectJSON := len(c.Request().Header.Peek(fiber.HeaderContentEncoding)) == 0 &&
+				logger.IsJSONContentType(c.Get(fiber.HeaderContentType))
+			fields = append(fields, logger.RequestFields(c.BodyRaw(), inspectJSON)...)
+		}
+		fields = append(fields, logger.ErrorFields(err)...)
 
+		logger.WithFCtx(c).Log(level, "[LogMiddleware] Request finished", fields...)
 		return err
 	}
 }

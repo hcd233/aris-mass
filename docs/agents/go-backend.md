@@ -33,7 +33,7 @@
 - 内部链路（usecase/domain service）使用 `ierr.Wrap(sentinel, cause, msg)` 或 `ierr.New(sentinel, msg)` 传递错误。
 - Handler 从 error 中提取业务错误：`rsp.Error = ierr.ToBizError(err, ierr.ErrXxx.BizError())`，然后 `return util.WrapHTTPResponse(rsp, nil)`。
 - Handler 保持薄封装：`return util.WrapHTTPResponse(h.uc.Method(ctx, req))` 或流式直接透传 `*huma.StreamResponse`。
-- 日志使用 `logger.WithCtx(ctx)` 或 `logger.WithFCtx(c)`；消息前缀为 `[PascalCaseModule]`；key/token/secret/password 必须用 `util.MaskSecret()`。
+- 日志使用 `logger.WithCtx(ctx)` 或 `logger.WithFCtx(c)`；消息前缀为 `[PascalCaseModule]`；既有必须展示的 key/token/secret/password 使用 `util.MaskSecret()`。请求链路事件按白名单采集调用参数，字段与脱敏约定见[后端日志规范](../superpowers/specs/2026-11-21-backend-logging-design.md)。
 - 业务包禁止建 `common.go` 工具堆场；导出公共 helper 放 `internal/util/` 或 `internal/common/`。
 - Redis key、存储路径、ID 格式、Data URL 模板等字符串模板放 `internal/common/constant/string.go`。
 - 业务包禁止定义本地 `const` 块；使用 `internal/common/constant/`、`internal/common/enum/`。

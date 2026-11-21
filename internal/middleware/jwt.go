@@ -11,6 +11,7 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/adapters/humafiber"
 
 	apiutil "github.com/hcd233/aris-mass/internal/api/util"
 	"github.com/hcd233/aris-mass/internal/common/constant"
@@ -78,6 +79,7 @@ func JwtMiddleware(db *gorm.DB, cache *redis.Client, accessTokenSvc jwt.TokenSig
 			return
 		}
 
+		humafiber.Unwrap(ctx).Locals(constant.CtxKeyUserID, userID)
 		ctx = huma.WithValue(ctx, constant.CtxKeyUserID, userID)
 		ctx = huma.WithValue(ctx, constant.CtxKeyUserName, name)
 		ctx = huma.WithValue(ctx, constant.CtxKeyPermission, permission)

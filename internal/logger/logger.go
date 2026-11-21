@@ -198,5 +198,5 @@ func init() {
 
 	core := zapcore.NewTee(cores...)
 
-	defaultLogger = zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1), zap.AddStacktrace(zapLevelMapping[constant.LogLevelPanic]))
+	defaultLogger = zap.New(core, zap.AddCaller(), zap.AddStacktrace(zapLevelMapping[constant.LogLevelPanic]))
 }

@@ -13,7 +13,6 @@ import (
 	"github.com/hcd233/aris-mass/internal/dto"
 	"github.com/hcd233/aris-mass/internal/logger"
 	"github.com/samber/lo"
-	"go.uber.org/zap"
 )
 
 func WrapHTTPResponse[rspT any](rsp rspT, err error) (*dto.HTTPResponse[rspT], error) {
@@ -93,7 +92,7 @@ func WriteUpstreamError(writer JSONResponseWriter, err error, fallbackBody []byt
 		_, _ = writer.HumaCtx.BodyWriter().Write([]byte(upstreamErr.Body)) //nolint:errcheck // best-effort write in stream error handler
 		return
 	}
-	log.Error("[ProxyService] Proxy error", zap.Error(err))
+	log.Error("[ProxyService] Proxy error", logger.ErrorFields(err)...)
 	writer.HumaCtx.SetStatus(fiber.StatusBadGateway)
 	writer.HumaCtx.SetHeader(constant.HTTPHeaderContentType, constant.HTTPContentTypeJSON)
 	_, _ = writer.HumaCtx.BodyWriter().Write(fallbackBody) //nolint:errcheck // best-effort write in stream error handler
