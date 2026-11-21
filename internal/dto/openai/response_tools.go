@@ -281,7 +281,7 @@ type ResponseToolFunction struct {
 	Type         string                     `json:"type" doc:"固定 function"`
 	Name         string                     `json:"name" doc:"函数名称"`
 	Parameters   *schema.JSONSchemaProperty `json:"parameters" doc:"函数参数 JSON schema"`
-	Strict       bool                       `json:"strict" doc:"是否严格校验参数"`
+	Strict       *bool                      `json:"strict,omitempty" nullable:"true" doc:"是否严格校验参数"`
 	DeferLoading *bool                      `json:"defer_loading,omitempty" doc:"是否延迟加载"`
 	Description  *string                    `json:"description,omitempty" doc:"函数描述"`
 }

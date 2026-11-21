@@ -44,6 +44,17 @@
     }
   },
   {
+    "name": "tools_function_optional_strict",
+    "description": "Function tools preserve omitted strict and both explicit boolean values.",
+    "request_body": {
+      "tools": [
+        {"type": "function", "name": "omitted_strict", "parameters": {"type": "object"}},
+        {"type": "function", "name": "strict_mode", "parameters": {"type": "object"}, "strict": true},
+        {"type": "function", "name": "non_strict_mode", "parameters": {"type": "object"}, "strict": false}
+      ]
+    }
+  },
+  {
     "name": "create_response_minimal",
     "description": "Minimal request with only model",
     "request_body": {"model": "gpt-4o"},

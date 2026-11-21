@@ -24,7 +24,7 @@ func buildNamespaceTools() []*dto.ResponseTool {
 					Type: lo.ToPtr(vo.JSONSchemaTypeValue{Single: enum.JSONSchemaTypeObject}),
 				},
 			},
-			Strict: true,
+			Strict: lo.ToPtr(true),
 		},
 	}, {
 		Type: enum.ResponseToolTypeNamespace,

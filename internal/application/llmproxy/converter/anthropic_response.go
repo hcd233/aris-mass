@@ -351,7 +351,7 @@ func convertResponseToolsToAnthropic(tools []*dto.ResponseTool) []*dto.Anthropic
 				Name:        &name,
 				Description: tool.Function.Description,
 				InputSchema: tool.Function.Parameters,
-				Strict:      &tool.Function.Strict,
+				Strict:      tool.Function.Strict,
 			}, true
 		case tool.Custom != nil:
 			name := tool.Custom.Name
