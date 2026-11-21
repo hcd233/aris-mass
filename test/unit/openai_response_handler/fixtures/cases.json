@@ -98,6 +98,44 @@
     }
   },
   {
+    "name": "responses_zcode_function_tool_without_strict",
+    "description": "ZCode omits strict on Responses function tools.",
+    "path": "/api/openai/v1/responses",
+    "want_status": 200,
+    "request_body": {
+      "model": "gpt-6.2-sol",
+      "input": "hello",
+      "stream": true,
+      "tools": [
+        {
+          "type": "function",
+          "name": "Agent",
+          "description": "Launch an agent.",
+          "parameters": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "properties": {"prompt": {"type": "string"}},
+            "required": ["prompt"],
+            "additionalProperties": false
+          }
+        },
+        {"type": "function", "name": "nullable_strict", "parameters": {"type": "object"}, "strict": null}
+      ]
+    }
+  },
+  {
+    "name": "responses_function_tool_with_invalid_strict",
+    "description": "A supplied strict value must be a boolean or null.",
+    "path": "/api/openai/v1/responses",
+    "want_status": 422,
+    "request_body": {
+      "model": "gpt-6.2-sol",
+      "tools": [
+        {"type": "function", "name": "Agent", "parameters": {"type": "object"}, "strict": "false"}
+      ]
+    }
+  },
+  {
     "name": "responses_web_search_with_external_web_access",
     "description": "Regression for tools oneOf mismatch: web_search tool with external_web_access must pass request validation.",
     "path": "/api/openai/v1/responses",

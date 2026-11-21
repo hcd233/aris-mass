@@ -414,7 +414,7 @@ func convertResponseToolToChat(tool *dto.ResponseTool) (dto.OpenAIChatCompletion
 				Name:        tool.Function.Name,
 				Description: tool.Function.Description,
 				Parameters:  tool.Function.Parameters,
-				Strict:      &tool.Function.Strict,
+				Strict:      tool.Function.Strict,
 			},
 		}, true
 	case tool.Custom != nil:
