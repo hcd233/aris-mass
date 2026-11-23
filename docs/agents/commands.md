@@ -22,3 +22,19 @@
 - UPX 极致压缩：`make build-upx`（需安装 upx）
 - 编译缓存预热：`make warm-cache`（CI 加速）
 - 全量清理：`make clean-all`（含 `go clean -cache`）
+
+## Worktree 磁盘管理
+
+从主工作区根目录调用 `script/worktree.py`，让前端依赖按 `package-lock.json` 哈希共享，避免每个工作树重复安装：
+
+```sh
+python3 script/worktree.py add .worktrees/<name> <branch> [base]
+python3 script/worktree.py deps .worktrees/<name>
+python3 script/worktree.py detach-deps .worktrees/<name>
+python3 script/worktree.py clean .worktrees/<name>
+python3 script/worktree.py clean --all
+python3 script/worktree.py remove .worktrees/<name>
+python3 script/worktree.py gc
+```
+
+`add` 不会为纯后端工作树安装前端依赖；只有需要前端时才运行 `deps`。依赖按锁文件 SHA-256 存在工作树共享缓存中，脚本会验证 npm 隐藏锁文件；不要在共享软链上直接运行 npm 安装命令。`make build`、`make build-server` 和 `make web-build` 会间接运行 `npm ci`，运行前先 `detach-deps`，完成后再运行 `deps`。其他依赖变更也先 `detach-deps`，再执行 `npm install`，最后运行 `deps`。`clean` 仅处理明确列出的生成目录、未跟踪 build info 和可识别的顶层可执行二进制；遇到软链、已跟踪文件、未知目录或不匹配的文件格式会跳过。`remove` 不会强制删除有未提交改动的工作树，且只回收带脚本标记且没有工作树或软链引用的共享缓存。

@@ -65,11 +65,11 @@
 - **Git 分支与 worktree**：任何开发任务都必须先在 `.worktrees/` 下创建或切换 git worktree，并在该 worktree 上 checkout 分支进行开发，禁止直接在主工作区开发。开发完成后询问用户是否需要提 MR 或直接合并到 `master`，禁止擅自操作。
 - **分支命名规范**：`{feature|bugfix|refactor|chore|docs|test|hotfix}/{5个以内小写英文单词描述功能或修复，使用连字符}-{当前 datetime，例如 2026-05-28}`。
 - **分支示例**：`feature/session-share-2026-05-28`、`bugfix/token-expiry-2026-05-28`、`refactor/split-endpoint-model-2026-05-28`。
-- **Worktree 精简创建（控制目录体积）**：`git worktree add` 本身只检出跟踪文件（约 50MB），目录膨胀全部来自 worktree 内产生的构建产物（实测单个含前端的 worktree 可达 2G+）。创建后按需执行：
-  - 涉前端改动时软链主工作区依赖，**禁止在 worktree 内 `npm ci`**（每份 `node_modules` 约 1.3G）：`ln -s ../../../web/node_modules .worktrees/<name>/web/node_modules`。前提是主工作区已 `npm ci` 过一次；软链后 `npm run lint` / `test` 均可正常运行。**构建例外**：Next 16 默认 Turbopack 拒绝使用跨出 root 的软链（`Symlink node_modules could not be resolved: the symlink target leaves the configured filesystem roots`），worktree 内需要构建产物时用 `npx next build --webpack`。
-  - 需要 `go build` / 跑 Go 测试时补 embed 占位文件（`//go:embed all:dist` 不跟随软链，只能放真实文件）：`mkdir -p .worktrees/<name>/internal/web/dist && echo '<!doctype html>' > .worktrees/<name>/internal/web/dist/index.html`。
-  - 验证结束后删除 `web/.next` 与 `web/out`（next build/dev 产物，单份可达数百 MB）。
-- **Worktree 清理**：分支合并或任务结束后及时 `git worktree remove .worktrees/<name>` 回收磁盘（remove 失败可先手动删目录再 `git worktree prune`）。
+- **Worktree 精简创建（控制目录体积）**：从主工作区根目录使用 `python3 script/worktree.py add .worktrees/<name> <branch> [base]` 创建工作树。不要在现有工作树目录内再创建嵌套工作树；脚本会拒绝此类目标。脚本仅复用按 `web/package-lock.json` SHA-256 分组、且通过 npm 隐藏锁文件校验的工作树共享缓存；主工作区依赖保持独立。前端任务按需运行 `python3 script/worktree.py deps .worktrees/<name>`；缓存未命中时脚本运行一次 `npm ci` 并将依赖纳入共享缓存。不要直接在共享软链上运行 npm 安装命令。`make build`、`make build-server` 和 `make web-build` 会间接执行 `npm ci`，运行前先 `detach-deps`，命令完成后再运行 `deps` 恢复共享。修改依赖前先运行 `python3 script/worktree.py detach-deps .worktrees/<name>`，再执行 `npm install`，最后运行 `deps` 将新锁文件版本登记到对应缓存。
+  - **Next 构建例外**：Next 16 默认 Turbopack 拒绝使用离开当前 root 的依赖软链（`Symlink node_modules could not be resolved: the symlink target leaves the configured filesystem roots`）；工作树内需要构建产物时用 `npx next build --webpack`。
+  - 需要 `go build` / 跑 Go 测试时补 embed 占位文件（`//go:embed all:dist` 不跟随软链，只能放真实文件）：`mkdir -p .worktrees/<name>/internal/web/dist && echo '<!doctype html>' > .worktrees/<name>/internal/web/dist/index.html`。Go 构建缓存使用默认的用户级位置，不要将 `GOCACHE` 指到工作树目录。
+  - 验证结束后运行 `python3 script/worktree.py clean .worktrees/<name>` 清理白名单中的 `build/client/`、`.next`、`out`、`dist`、本地 Go/静态分析缓存、TS build info 和可识别的顶层编译可执行文件（包括 `aris-mass`）；`clean --all` 可清理所有已登记且仍存在的工作树。清理前会跳过软链、Git 已跟踪内容、未知目录、与其他已登记工作树存在包含关系的路径和非可执行格式文件，不递归删除 `client/` 等用户目录，也不触碰共享 `node_modules`。
+- **Worktree 清理**：分支任务结束后先 `clean`，再运行 `python3 script/worktree.py remove .worktrees/<name>`。脚本调用 Git 默认安全移除，不带 `--force`；若目标工作树内还登记有其他工作树会停止。移除成功后会删除不再被任何工作树引用的共享依赖缓存。不要手动删除工作树目录。
 - **Brainstorming-first 设计先行**：收到需求或 bug 任务后，在着手编码前优先加载 `brainstorming`（superpowers）skill 对设计方案进行压力测试。需求模糊或存在多种方案时先进入 brainstorming 的澄清循环厘清。process skill（设计评审、调试等）优先于 implementation skill。禁止以"这不是正式任务""我先收集信息"等理由跳过设计评审。
 - **开发前先读 `CONTEXT.md`**：动手前阅读根 `CONTEXT.md`（涉前端时一并读 `web/CONTEXT.md`），确认相关领域概念与术语；开发中新出现的领域概念、术语或语义边界，及时回写 `CONTEXT.md`。
 - **编写或修改 Go 代码时，必须按上文「Go 后端 Skill 加载清单」加载对应 skill**：`use-modern-go`（编辑文件前先跑 `list`）、`golang-naming`、`golang-code-style`、`golang-samber-lo`、`golang-samber-mo`，以及按改动范围触发的 `golang-uber-fx` / `golang-spf13-*` / `huma-dto-conventions`。
