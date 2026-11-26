@@ -2,38 +2,38 @@
   "schema_version": 2,
   "diagram_type": "workflow",
   "meta": {
-    "title": "定时任务触发与执行",
-    "locale": "zh-CN",
+    "title": "Cron Trigger & Execution",
+    "locale": "en",
     "quality_profile": "showcase",
     "animation": "trace"
   },
   "lanes": [
-    { "id": "exec", "label": "触发与执行" },
-    { "id": "sync", "label": "跨 Pod 同步" }
+    { "id": "exec", "label": "Trigger & Execute" },
+    { "id": "sync", "label": "Cross-Pod Sync" }
   ],
   "mainPath": ["admin", "mgr", "lock", "wrap", "jobs", "audit"],
   "nodes": [
-    { "id": "admin", "lane": "exec", "col": 0, "type": "frontend", "label": "管理后台 /cron", "sublabel": "更新 spec · 手动触发" },
-    { "id": "mgr", "lane": "exec", "col": 1, "type": "backend", "label": "CronManager", "sublabel": "Restart · Trigger 持 RLock", "width": 132 },
-    { "id": "lock", "lane": "exec", "col": 2, "type": "security", "label": "Redis 分布式锁", "sublabel": "cron:lock:{name} · 续期", "width": 132 },
-    { "id": "wrap", "lane": "exec", "col": 3, "type": "backend", "label": "wrapCronFunc", "sublabel": "traceID · panic 恢复" },
-    { "id": "jobs", "lane": "exec", "col": 4, "type": "backend", "label": "6 个 Cron 任务", "sublabel": "会话 · 图片 · 订阅 · 触发词", "width": 150 },
-    { "id": "audit", "lane": "exec", "col": 5, "type": "database", "label": "CronCallAudit", "sublabel": "status·duration·trigger", "width": 136 },
-    { "id": "pubsub", "lane": "sync", "col": 2, "type": "database", "label": "Redis pub/sub", "sublabel": "cron:reload 广播" },
-    { "id": "other", "lane": "sync", "col": 3, "type": "backend", "label": "其他 Pod", "sublabel": "handleMessage 热重载" }
+    { "id": "admin", "lane": "exec", "col": 0, "type": "frontend", "label": "Admin /cron", "sublabel": "Edit spec · run" },
+    { "id": "mgr", "lane": "exec", "col": 1, "type": "backend", "label": "CronManager", "sublabel": "Restart · RLock", "width": 132 },
+    { "id": "lock", "lane": "exec", "col": 2, "type": "security", "label": "Redis Lock", "sublabel": "cron:lock:{name} · renew", "width": 132 },
+    { "id": "wrap", "lane": "exec", "col": 3, "type": "backend", "label": "wrapCronFunc", "sublabel": "trace · recover" },
+    { "id": "jobs", "lane": "exec", "col": 4, "type": "backend", "label": "6 Cron Jobs", "sublabel": "Sessions · blobs · OAuth", "width": 150 },
+    { "id": "audit", "lane": "exec", "col": 5, "type": "database", "label": "CronCallAudit", "sublabel": "status · timing", "width": 136 },
+    { "id": "pubsub", "lane": "sync", "col": 2, "type": "database", "label": "Redis pub/sub", "sublabel": "cron:reload" },
+    { "id": "other", "lane": "sync", "col": 3, "type": "backend", "label": "Other Pods", "sublabel": "hot reload" }
   ],
   "edges": [
-    { "from": "admin", "to": "mgr", "label": "更新 / 触发" },
-    { "from": "mgr", "to": "lock", "label": "加锁", "variant": "emphasis" },
-    { "from": "lock", "to": "wrap", "label": "续期执行" },
-    { "from": "wrap", "to": "jobs", "label": "执行 fn" },
-    { "from": "jobs", "to": "audit", "label": "落审计" },
+    { "from": "admin", "to": "mgr", "label": "Update / run" },
+    { "from": "mgr", "to": "lock", "label": "Lock", "variant": "emphasis" },
+    { "from": "lock", "to": "wrap", "label": "Execute + renew" },
+    { "from": "wrap", "to": "jobs", "label": "Run fn" },
+    { "from": "jobs", "to": "audit", "label": "Audit" },
     { "from": "mgr", "to": "pubsub", "label": "Publish", "variant": "dashed" },
-    { "from": "pubsub", "to": "other", "label": "订阅同步", "variant": "dashed" }
+    { "from": "pubsub", "to": "other", "label": "Sync", "variant": "dashed" }
   ],
   "cards": [
-    { "dot": "cyan", "title": "热重载", "items": ["管理后台更新 spec / enabled（核心任务禁关）或手动触发 CronManager.Trigger", "Redis pub/sub 广播 cron:reload，其他 Pod handleMessage 同步", "双 Pod 部署下配置变更秒级生效"] },
-    { "dot": "emerald", "title": "单点执行", "items": ["执行前抢 Redis 分布式锁 cron:lock:{name}，默认 TTL 5min + ticker 续期", "wrapCronFunc 注入 traceID、enabled 检查、panic 恢复", "terminal-cleanup 每小时扫 24h · purge 周日 04:00 · think 每日 00:00", "hit-sync 与 blob-upload-retry 每 5min · oauth-maintenance 每 10min 刷新并探测额度"] },
-    { "dot": "rose", "title": "可观测与边界", "items": ["每次执行落 CronCallAudit：status · duration · trigger source", "管理后台可查看执行历史与手动补跑；拿不到锁的手动触发不执行也不落审计", "Session 前缀合并不走 Cron，而在每次存储事务提交后实时执行"] }
+    { "dot": "cyan", "title": "Hot Reload", "items": ["Admin updates spec / enabled (core jobs cannot be disabled) or calls CronManager.Trigger manually", "Redis pub/sub broadcasts cron:reload and every other Pod reloads in handleMessage", "Configuration changes take effect within seconds across two Pods"] },
+    { "dot": "emerald", "title": "Single-node Execution", "items": ["Each run acquires cron:lock:{name} with a default 5min TTL and ticker renewal", "wrapCronFunc injects traceID, checks enabled and recovers panics", "terminal-cleanup hourly scans 24h · purge Sunday 04:00 · think daily 00:00", "hit-sync and blob-upload-retry every 5min · oauth-maintenance every 10min refreshes and probes quota"] },
+    { "dot": "rose", "title": "Observability & Boundaries", "items": ["Every run writes CronCallAudit: status · duration · trigger source", "Admin shows execution history and manual reruns; a manual run without the lock is skipped and not audited", "Session prefix merges are not Cron jobs; they run after every storage transaction commits"] }
   ]
 }

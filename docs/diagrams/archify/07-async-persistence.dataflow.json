@@ -2,56 +2,56 @@
   "schema_version": 1,
   "diagram_type": "dataflow",
   "meta": {
-    "title": "异步任务与持久化数据流",
-    "locale": "zh-CN",
+    "title": "Async Tasks & Persistence Data Flow",
+    "locale": "en",
     "quality_profile": "showcase",
     "animation": "trace",
     "viewBox": [1068, 560],
     "views": [
-      { "id": "session-write", "label": "会话写入", "focus": ["call-result", "store-task", "store-pool", "session-tx", "merge", "postgres"], "note": "消息存储任务经统一池执行会话事务，提交后再做续写合并和缓存失效。" },
-      { "id": "audit-write", "label": "调用审计", "focus": ["call-result", "audit-task", "store-pool", "audit-repo", "postgres"], "note": "recordModelCall 只提交终局结果，审计聚合仓储独立落库。" },
-      { "id": "demo-write", "label": "Demo 审计", "focus": ["demo-event", "demo-task", "store-pool", "demo-repo", "postgres"], "note": "Demo 登录与模块访问共用同一有界池，但使用独立仓储和事实表。" }
+      { "id": "session-write", "label": "Session Writes", "focus": ["call-result", "store-task", "store-pool", "session-tx", "merge", "postgres"], "note": "Message storage tasks run the session transaction in a shared pool, then merge continuations and evict cache." },
+      { "id": "audit-write", "label": "Call Audit", "focus": ["call-result", "audit-task", "store-pool", "audit-repo", "postgres"], "note": "recordModelCall submits only the final result; the audit repository persists it independently." },
+      { "id": "demo-write", "label": "Demo Audit", "focus": ["demo-event", "demo-task", "store-pool", "demo-repo", "postgres"], "note": "Demo login and module access share the bounded pool but use a separate repository and fact table." }
     ]
   },
   "stages": [
-    { "label": "事件来源" },
-    { "label": "任务组装" },
-    { "label": "统一协程池" },
-    { "label": "持久化路径" },
-    { "label": "后置处理与事实源" }
+    { "label": "Event Sources" },
+    { "label": "Task Assembly" },
+    { "label": "Shared Pool" },
+    { "label": "Persistence" },
+    { "label": "Post-process & Facts" }
   ],
   "nodes": [
-    { "id": "call-result", "type": "backend", "label": "LLM 调用收尾", "sublabel": "JSON/SSE · 独立 ctx", "stage": 0, "row": 0, "tag": "CopyContextValues" },
-    { "id": "demo-event", "type": "security", "label": "Demo 访问事件", "sublabel": "path · IP · UA", "stage": 0, "row": 2, "tag": "只读治理" },
-    { "id": "store-task", "type": "messagebus", "label": "MessageStoreTask", "sublabel": "omit / Playground 跳过", "stage": 1, "row": 0, "width": 170, "tag": "会话快照" },
-    { "id": "audit-task", "type": "messagebus", "label": "ModelCallAuditTask", "sublabel": "token · latency · cost · trace", "stage": 1, "row": 1, "width": 175, "tag": "仅终局" },
-    { "id": "demo-task", "type": "messagebus", "label": "DemoAccessAuditTask", "sublabel": "登录 · 模块访问", "stage": 1, "row": 2, "width": 175, "tag": "best-effort" },
-    { "id": "store-pool", "type": "messagebus", "label": "Pond storePool", "sublabel": "统一有界队列 · 满或停记录告警", "stage": 2, "row": 1, "width": 180, "tag": "异步执行" },
-    { "id": "session-tx", "type": "backend", "label": "会话写入事务", "sublabel": "清洗 · 外置 · 锁引用 · checksum 去重", "stage": 3, "row": 0, "width": 180, "tag": "原子提交" },
-    { "id": "audit-repo", "type": "backend", "label": "AuditRepository", "sublabel": "RecordCall 聚合 · 成本快照", "stage": 3, "row": 1, "width": 170, "tag": "调用事实" },
-    { "id": "demo-repo", "type": "backend", "label": "DemoAuditRepository", "sublabel": "登录与模块访问记录", "stage": 3, "row": 2, "width": 175, "tag": "治理事实" },
-    { "id": "merge", "type": "backend", "label": "续写合并", "sublabel": "短事务 · 行锁 · 缓存失效", "stage": 4, "row": 0, "tag": "best-effort" },
-    { "id": "postgres", "type": "database", "label": "PostgreSQL", "sublabel": "会话 · 消息 · 审计", "stage": 4, "row": 1, "tag": "事实源" }
+    { "id": "call-result", "type": "backend", "label": "LLM Call Finalize", "sublabel": "JSON/SSE · detached ctx", "stage": 0, "row": 0, "tag": "CopyContextValues" },
+    { "id": "demo-event", "type": "security", "label": "Demo Access Event", "sublabel": "path · IP · UA", "stage": 0, "row": 2, "tag": "Read-only control" },
+    { "id": "store-task", "type": "messagebus", "label": "MessageStoreTask", "sublabel": "omit / Playground skip", "stage": 1, "row": 0, "width": 170, "tag": "Session snapshot" },
+    { "id": "audit-task", "type": "messagebus", "label": "ModelCallAuditTask", "sublabel": "token · latency · cost · trace", "stage": 1, "row": 1, "width": 175, "tag": "Final only" },
+    { "id": "demo-task", "type": "messagebus", "label": "DemoAccessAuditTask", "sublabel": "Login · module access", "stage": 1, "row": 2, "width": 175, "tag": "best-effort" },
+    { "id": "store-pool", "type": "messagebus", "label": "Pond storePool", "sublabel": "Bounded queue · alert on full", "stage": 2, "row": 1, "width": 180, "tag": "Async" },
+    { "id": "session-tx", "type": "backend", "label": "Session Write Transaction", "sublabel": "Sanitize · images · lock · dedupe", "stage": 3, "row": 0, "width": 180, "tag": "Atomic commit" },
+    { "id": "audit-repo", "type": "backend", "label": "AuditRepository", "sublabel": "RecordCall · cost snapshot", "stage": 3, "row": 1, "width": 170, "tag": "Call fact" },
+    { "id": "demo-repo", "type": "backend", "label": "DemoAuditRepository", "sublabel": "Login and module access", "stage": 3, "row": 2, "width": 175, "tag": "Governance fact" },
+    { "id": "merge", "type": "backend", "label": "Continuation Merge", "sublabel": "Merge + evict", "stage": 4, "row": 0, "tag": "best-effort" },
+    { "id": "postgres", "type": "database", "label": "PostgreSQL", "sublabel": "Sessions · audit", "stage": 4, "row": 1, "tag": "Source of truth" }
   ],
   "flows": [
-    { "id": "result-store", "from": "call-result", "to": "store-task", "label": "会话任务", "variant": "emphasis", "route": "straight", "labelDy": -52 },
-    { "id": "result-audit", "from": "call-result", "to": "audit-task", "label": "审计任务", "variant": "dashed" },
-    { "id": "demo-taskify", "from": "demo-event", "to": "demo-task", "label": "访问事件", "variant": "security", "route": "straight", "labelDy": 53 },
-    { "id": "store-enqueue", "from": "store-task", "to": "store-pool", "label": "会话任务", "variant": "dashed" },
-    { "id": "audit-enqueue", "from": "audit-task", "to": "store-pool", "label": "审计任务", "variant": "dashed", "route": "straight", "labelDx": -70, "labelDy": 53 },
-    { "id": "demo-enqueue", "from": "demo-task", "to": "store-pool", "label": "Demo 任务", "variant": "dashed" },
-    { "id": "pool-session", "from": "store-pool", "to": "session-tx", "label": "会话写入", "variant": "emphasis" },
-    { "id": "pool-audit", "from": "store-pool", "to": "audit-repo", "label": "调用审计", "variant": "dashed", "route": "straight", "labelDx": 70, "labelDy": 53 },
-    { "id": "pool-demo", "from": "store-pool", "to": "demo-repo", "label": "Demo 审计", "variant": "dashed" },
-    { "id": "session-merge", "from": "session-tx", "to": "merge", "label": "提交后合并", "variant": "emphasis", "route": "straight", "labelDy": -52 },
-    { "id": "session-db", "from": "session-tx", "to": "postgres", "label": "事务提交", "variant": "emphasis" },
-    { "id": "audit-db", "from": "audit-repo", "to": "postgres", "label": "模型调用", "variant": "dashed", "route": "straight", "labelDx": -70, "labelDy": 53 },
-    { "id": "demo-db", "from": "demo-repo", "to": "postgres", "label": "访问审计", "variant": "dashed" },
-    { "id": "merge-db", "from": "merge", "to": "postgres", "label": "前滚 keeper", "variant": "dashed", "labelDy": 24 }
+    { "id": "result-store", "from": "call-result", "to": "store-task", "label": "Session task", "variant": "emphasis", "route": "straight", "labelDy": -52 },
+    { "id": "result-audit", "from": "call-result", "to": "audit-task", "label": "Audit task", "variant": "dashed" },
+    { "id": "demo-taskify", "from": "demo-event", "to": "demo-task", "label": "Access event", "variant": "security", "route": "straight", "labelDy": 53 },
+    { "id": "store-enqueue", "from": "store-task", "to": "store-pool", "label": "Session task", "variant": "dashed" },
+    { "id": "audit-enqueue", "from": "audit-task", "to": "store-pool", "label": "Audit task", "variant": "dashed", "route": "straight", "labelDx": -70, "labelDy": 53 },
+    { "id": "demo-enqueue", "from": "demo-task", "to": "store-pool", "label": "Demo task", "variant": "dashed" },
+    { "id": "pool-session", "from": "store-pool", "to": "session-tx", "label": "Session write", "variant": "emphasis" },
+    { "id": "pool-audit", "from": "store-pool", "to": "audit-repo", "label": "Call audit", "variant": "dashed", "route": "straight", "labelDx": 70, "labelDy": 53 },
+    { "id": "pool-demo", "from": "store-pool", "to": "demo-repo", "label": "Demo audit", "variant": "dashed" },
+    { "id": "session-merge", "from": "session-tx", "to": "merge", "label": "Post-commit", "variant": "emphasis", "route": "straight", "labelDy": -52 },
+    { "id": "session-db", "from": "session-tx", "to": "postgres", "label": "Commit", "variant": "emphasis" },
+    { "id": "audit-db", "from": "audit-repo", "to": "postgres", "label": "Model call", "variant": "dashed", "route": "straight", "labelDx": -70, "labelDy": 53 },
+    { "id": "demo-db", "from": "demo-repo", "to": "postgres", "label": "Access audit", "variant": "dashed" },
+    { "id": "merge-db", "from": "merge", "to": "postgres", "label": "Keeper roll-forward", "variant": "dashed", "labelDy": 24 }
   ],
   "cards": [
-    { "dot": "cyan", "title": "任务边界", "items": ["CopyContextValues 保留 trace 与归属；omit / Playground 不生成会话任务", "尝试期失败审计被暂存，仅终局进入 ModelCallAuditTask"] },
-    { "dot": "emerald", "title": "会话事务与合并", "items": ["清洗并外置图片，锁定引用；checksum + ON CONFLICT 去重且拒绝零值 ID", "提交后按 API Key + 首 Message 分组，以 FOR UPDATE 合并并失效缓存"] },
-    { "dot": "rose", "title": "可靠性与事实源", "items": ["三类任务共享有界 storePool，队列满或池停记录告警", "会话、调用审计与 Demo 审计分别写 PostgreSQL；退出时先 drain 再排空池"] }
+    { "dot": "cyan", "title": "Task Boundaries", "items": ["CopyContextValues preserves trace and ownership; omit / Playground create no session task", "Attempt failures are buffered; only the final result enters ModelCallAuditTask"] },
+    { "dot": "emerald", "title": "Session Transaction & Merge", "items": ["Sanitize and externalize images; lock references; checksum + ON CONFLICT dedupe rejects zero IDs", "After commit, group by API Key + first Message, merge with FOR UPDATE and evict cache"] },
+    { "dot": "rose", "title": "Reliability & Facts", "items": ["Three task types share the bounded storePool; full queues or a stopped pool raise alerts", "Sessions, call audit and Demo audit write PostgreSQL separately; shutdown drains before pool stop"] }
   ]
 }

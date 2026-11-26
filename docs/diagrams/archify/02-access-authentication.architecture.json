@@ -2,8 +2,8 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "接入分区与认证边界",
-    "locale": "zh-CN",
+    "title": "Access Partitions & Authentication Boundaries",
+    "locale": "en",
     "quality_profile": "showcase",
     "animation": "trace",
     "repository": {
@@ -12,47 +12,47 @@
     },
     "viewBox": [1360, 680],
     "views": [
-      { "id": "web-access", "label": "Web 双通道", "focus": ["web-admin", "router", "web-public", "web-jwt", "oauth-provider", "redis"], "note": "同前缀下 public 与 JWT 两个平行 Huma Group，避免公开路由被鉴权中间件覆盖。" },
-      { "id": "key-access", "label": "API Key 通道", "focus": ["aris-cli", "agentic-clients", "router", "api-key", "redis", "postgres"], "note": "CLI 与 LLM 代理分区分别注册，但共用 API Key 鉴权与身份注入。" },
-      { "id": "identity-state", "label": "认证状态", "focus": ["oauth-provider", "redis", "postgres"], "note": "OAuth2 负责登录，Redis 加速令牌与 API Key 校验，PostgreSQL 保存身份和密钥。" }
+      { "id": "web-access", "label": "Web Channels", "focus": ["web-admin", "router", "web-public", "web-jwt", "oauth-provider", "redis"], "note": "Parallel public and JWT Huma groups prevent authentication from leaking onto public routes." },
+      { "id": "key-access", "label": "API Key Channel", "focus": ["aris-cli", "agentic-clients", "router", "api-key", "redis", "postgres"], "note": "CLI and proxy routes are registered separately but share API Key authentication and identity injection." },
+      { "id": "identity-state", "label": "Authentication State", "focus": ["oauth-provider", "redis", "postgres"], "note": "OAuth2 handles login, Redis accelerates checks, and PostgreSQL stores identities and keys." }
     ]
   },
   "components": [
-    { "id": "web-admin", "type": "frontend", "label": "Web 浏览器", "sublabel": "OAuth2 登录 · Bearer JWT · 公开分享", "tag": "/api/web/v1", "pos": [40, 34], "size": [300, 92] },
+    { "id": "web-admin", "type": "frontend", "label": "Web Browser", "sublabel": "OAuth2 login · Bearer JWT · public shares", "tag": "/api/web/v1", "pos": [40, 34], "size": [300, 92] },
     { "id": "aris-cli", "type": "frontend", "label": "aris CLI", "sublabel": "model list · key check · install.sh", "tag": "/api/cli/v1", "pos": [370, 34], "size": [300, 92], "sources": [{ "path": "internal/router/cli.go" }] },
-    { "id": "agentic-clients", "type": "external", "label": "Agentic 客户端", "sublabel": "Chat · Responses · Decisions · Messages", "tag": "X-API-Key", "pos": [700, 34], "size": [300, 92] },
-    { "id": "ops-client", "type": "external", "label": "探活与运维客户端", "sublabel": "health · ready · metrics · install.sh", "tag": "Ops", "pos": [1030, 34], "size": [290, 92] },
-    { "id": "router", "type": "backend", "label": "Fiber + Huma 路由分区", "sublabel": "Web / CLI / Proxy / Ops · 全局 Trace → Compress → Log → Recover → Metrics → Inflight → Guard → CORS → Locale", "tag": "四分区", "pos": [40, 174], "size": [1280, 84], "sources": [{ "path": "internal/router/router.go" }, { "path": "internal/bootstrap/container.go" }] },
-    { "id": "web-public", "type": "security", "label": "Web publicGroup", "sublabel": "OAuth2 · refresh · demo · 分享 · 限流", "tag": "无 JWT", "pos": [40, 326], "size": [300, 112], "sources": [{ "path": "internal/router/webapi.go" }] },
-    { "id": "web-jwt", "type": "security", "label": "Web jwtGroup", "sublabel": "JWT + Redis 校验 · demoAccess 限流", "tag": "Bearer", "pos": [370, 326], "size": [300, 112], "sources": [{ "path": "internal/middleware/jwt.go" }] },
-    { "id": "api-key", "type": "security", "label": "CLI / Proxy API Key", "sublabel": "X-API-Key · 缓存30s · 注入身份与权限", "tag": "APIKeyMiddleware", "pos": [700, 326], "size": [300, 112], "sources": [{ "path": "internal/middleware/apikey.go" }] },
-    { "id": "ops-public", "type": "security", "label": "Ops 公开端点", "sublabel": "健康探针 · Prometheus · 安装脚本 · docs 仅非生产", "tag": "无鉴权", "pos": [1030, 326], "size": [290, 112], "sources": [{ "path": "internal/router/ops.go" }] },
-    { "id": "oauth-provider", "type": "external", "label": "OAuth2 Provider", "sublabel": "GitHub · Google · 登录后签发 TokenPair", "pos": [40, 534], "size": [300, 80] },
-    { "id": "redis", "type": "database", "label": "Redis", "sublabel": "JWT / API Key 缓存 · 令牌桶 · OAuth flow", "brand": "redis", "pos": [370, 534], "size": [300, 80] },
-    { "id": "postgres", "type": "database", "label": "PostgreSQL", "sublabel": "User · ProxyAPIKey · 权限与启用状态", "brand": "postgresql", "pos": [700, 534], "size": [300, 80] }
+    { "id": "agentic-clients", "type": "external", "label": "Agentic Clients", "sublabel": "Chat · Responses · Decisions · Messages", "tag": "X-API-Key", "pos": [700, 34], "size": [300, 92] },
+    { "id": "ops-client", "type": "external", "label": "Probes & Ops Clients", "sublabel": "health · ready · metrics · install.sh", "tag": "Ops", "pos": [1030, 34], "size": [290, 92] },
+    { "id": "router", "type": "backend", "label": "Fiber + Huma Route Partitions", "sublabel": "Web / CLI / Proxy / Ops · Trace → Compress → Log → Recover → Metrics → Inflight → Guard → CORS → Locale", "tag": "4 partitions", "pos": [40, 174], "size": [1280, 84], "sources": [{ "path": "internal/router/router.go" }, { "path": "internal/bootstrap/container.go" }] },
+    { "id": "web-public", "type": "security", "label": "Web publicGroup", "sublabel": "OAuth2 · refresh · demo · shares · rate limits", "tag": "No JWT", "pos": [40, 326], "size": [300, 112], "sources": [{ "path": "internal/router/webapi.go" }] },
+    { "id": "web-jwt", "type": "security", "label": "Web jwtGroup", "sublabel": "JWT + Redis checks · demoAccess limiter", "tag": "Bearer", "pos": [370, 326], "size": [300, 112], "sources": [{ "path": "internal/middleware/jwt.go" }] },
+    { "id": "api-key", "type": "security", "label": "CLI / Proxy API Key", "sublabel": "X-API-Key · 30s cache · identity & permissions", "tag": "APIKeyMiddleware", "pos": [700, 326], "size": [300, 112], "sources": [{ "path": "internal/middleware/apikey.go" }] },
+    { "id": "ops-public", "type": "security", "label": "Public Ops Endpoints", "sublabel": "Probes · metrics · installer · non-prod docs", "tag": "No auth", "pos": [1030, 326], "size": [290, 112], "sources": [{ "path": "internal/router/ops.go" }] },
+    { "id": "oauth-provider", "type": "external", "label": "OAuth2 Provider", "sublabel": "GitHub · Google · issues TokenPair after login", "pos": [40, 534], "size": [300, 80] },
+    { "id": "redis", "type": "database", "label": "Redis", "sublabel": "JWT / API Key cache · token buckets · OAuth flow", "brand": "redis", "pos": [370, 534], "size": [300, 80] },
+    { "id": "postgres", "type": "database", "label": "PostgreSQL", "sublabel": "User · ProxyAPIKey · permissions & enabled state", "brand": "postgresql", "pos": [700, 534], "size": [300, 80] }
   ],
   "boundaries": [
-    { "kind": "region", "label": "调用方", "wraps": ["web-admin", "aris-cli", "agentic-clients", "ops-client"], "pad": 10 },
-    { "kind": "security-group", "label": "认证边界：每个分区只挂自己的凭据校验", "wraps": ["web-public", "web-jwt", "api-key", "ops-public"], "pad": 10 },
-    { "kind": "region", "label": "认证依赖", "wraps": ["oauth-provider", "redis", "postgres"], "pad": 10 }
+    { "kind": "region", "label": "Callers", "wraps": ["web-admin", "aris-cli", "agentic-clients", "ops-client"], "pad": 10 },
+    { "kind": "security-group", "label": "Authentication Boundary: each partition checks only its own credentials", "wraps": ["web-public", "web-jwt", "api-key", "ops-public"], "pad": 10 },
+    { "kind": "region", "label": "Authentication Dependencies", "wraps": ["oauth-provider", "redis", "postgres"], "pad": 10 }
   ],
   "connections": [
     { "id": "web-router", "from": "web-admin", "to": "router", "label": "HTTPS · JWT / public", "fromSide": "bottom", "toSide": "top" },
     { "id": "cli-router", "from": "aris-cli", "to": "router", "label": "X-API-Key", "fromSide": "bottom", "toSide": "top" },
     { "id": "agent-router", "from": "agentic-clients", "to": "router", "label": "X-API-Key · HTTP / SSE", "variant": "emphasis", "fromSide": "bottom", "toSide": "top" },
     { "id": "ops-router", "from": "ops-client", "to": "router", "label": "HTTP GET", "fromSide": "bottom", "toSide": "top" },
-    { "id": "router-public", "from": "router", "to": "web-public", "label": "公开子组", "fromSide": "bottom", "toSide": "top" },
-    { "id": "router-jwt", "from": "router", "to": "web-jwt", "label": "业务子组", "variant": "security", "fromSide": "bottom", "toSide": "top" },
-    { "id": "router-key", "from": "router", "to": "api-key", "label": "CLI + Proxy 各自注册", "variant": "security", "fromSide": "bottom", "toSide": "top" },
-    { "id": "router-ops", "from": "router", "to": "ops-public", "label": "根路径", "fromSide": "bottom", "toSide": "top" },
-    { "id": "public-oauth", "from": "web-public", "to": "oauth-provider", "label": "授权码登录", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelDy": 24 },
-    { "id": "jwt-redis", "from": "web-jwt", "to": "redis", "label": "TokenPair 校验", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelDy": 24 },
-    { "id": "key-redis", "from": "api-key", "to": "redis", "label": "30s 鉴权缓存", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelDy": 24 },
-    { "id": "key-db", "from": "api-key", "to": "postgres", "label": "miss 回源", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelDx": 70, "labelDy": 24 }
+    { "id": "router-public", "from": "router", "to": "web-public", "label": "Public group", "fromSide": "bottom", "toSide": "top" },
+    { "id": "router-jwt", "from": "router", "to": "web-jwt", "label": "Business group", "variant": "security", "fromSide": "bottom", "toSide": "top" },
+    { "id": "router-key", "from": "router", "to": "api-key", "label": "CLI + Proxy groups", "variant": "security", "fromSide": "bottom", "toSide": "top" },
+    { "id": "router-ops", "from": "router", "to": "ops-public", "label": "Root paths", "fromSide": "bottom", "toSide": "top" },
+    { "id": "public-oauth", "from": "web-public", "to": "oauth-provider", "label": "Authorization-code login", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelDy": 24 },
+    { "id": "jwt-redis", "from": "web-jwt", "to": "redis", "label": "Validate TokenPair", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelDy": 24 },
+    { "id": "key-redis", "from": "api-key", "to": "redis", "label": "30s auth cache", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelDy": 24 },
+    { "id": "key-db", "from": "api-key", "to": "postgres", "label": "Database fallback on miss", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelDx": 70, "labelDy": 24 }
   ],
   "cards": [
-    { "dot": "cyan", "title": "四分区", "items": ["Web：publicGroup 与 jwtGroup 平行，公开路由不被 JWT 误伤", "CLI 与 Proxy 分开注册路径，共同使用 X-API-Key 认证", "Ops 仅暴露探活、指标与安装脚本；文档和 fgprof 仅非生产"] },
-    { "dot": "emerald", "title": "两类凭据", "items": ["OAuth2 只负责 Web 登录；业务请求使用 Bearer AccessToken", "API Key 只负责 CLI / Proxy；JWT 不会被当作 API Key 查库", "认证统一注入用户、Key 与权限上下文，业务层不重复解析凭据"] },
-    { "dot": "rose", "title": "边界与后续", "items": ["Redis 是认证缓存与限流状态，PostgreSQL 是身份事实源", "本图不展开权限比较、租户隔离和 Demo 白名单，见「权限与 Demo 治理」", "LLM 请求限流、触发词和端点转发见后续代理链路图"] }
+    { "dot": "cyan", "title": "Four Partitions", "items": ["Web publicGroup and jwtGroup are parallel; public routes never require JWT", "CLI and Proxy register separate paths but share X-API-Key authentication", "Ops exposes probes, metrics and installer; docs and fgprof are non-production only"] },
+    { "dot": "emerald", "title": "Two Credential Types", "items": ["OAuth2 handles Web login; business requests use Bearer AccessToken", "API Keys serve CLI / Proxy only; JWT is never looked up as an API Key", "Authentication injects user, key and permission context once for downstream code"] },
+    { "dot": "rose", "title": "Boundaries & Next Steps", "items": ["Redis stores auth caches and limiter state; PostgreSQL is the identity source of truth", "Permission comparison, tenant isolation and Demo rules appear in Access & Demo Governance", "LLM rate limits, trigger filtering and forwarding appear in the proxy pipeline"] }
   ]
 }
