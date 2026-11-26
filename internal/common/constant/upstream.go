@@ -61,6 +61,9 @@ const (
 	OpenAIInvalidRequestErrorType       = "invalid_request_error"
 	OpenAIModelNotFoundCode             = "model_not_found"
 	OpenAIModelNotFoundMessageTemplate  = "The model `%s` does not exist"
+	OpenAIUnsupportedValueCode          = "unsupported_value"
+	OpenAIChatChoiceCountParam          = "n"
+	OpenAIChatChoiceCountMessage        = "Use n=1 with the available endpoints for this model"
 
 	// ChatCompletionConvertToolDescFileSearch FileSearch 工具转换描述
 	ChatCompletionConvertToolDescFileSearch = "File search tool for retrieving information from vector stores"

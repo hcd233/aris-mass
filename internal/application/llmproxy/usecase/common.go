@@ -32,21 +32,14 @@ func auditFailure(ctx context.Context, m *aggregate.Model, submitter TaskSubmitt
 //
 // 处于 runWithFallback 的尝试期内时只暂存不提交：是否终局由 runWithFallback 判定。
 func auditFailureWithProviders(ctx context.Context, m *aggregate.Model, submitter TaskSubmitter, tokenMetrics *metrics.TokenUsageCounter, _, endpoint string, upstreamProtocol, apiProtocol enum.ProtocolType, totalMs int64, err error) {
-	submit := func() {
-		recordModelCall(ctx, submitter, tokenMetrics, callOutcome{
-			model:               m,
-			endpoint:            endpoint,
-			upstreamProtocol:    upstreamProtocol,
-			apiProtocol:         apiProtocol,
-			firstTokenLatencyMs: totalMs,
-			err:                 err,
-		})
-	}
-	if d, ok := ctx.Value(constant.CtxKeyFailureAuditDeferral).(*failureAuditDeferral); ok && d.active {
-		d.pending = submit
-		return
-	}
-	submit()
+	recordModelCall(ctx, submitter, tokenMetrics, callOutcome{
+		model:               m,
+		endpoint:            endpoint,
+		upstreamProtocol:    upstreamProtocol,
+		apiProtocol:         apiProtocol,
+		firstTokenLatencyMs: totalMs,
+		err:                 err,
+	})
 }
 
 // failureAuditDeferral 单次 fallback 尝试的失败审计暂存槽。

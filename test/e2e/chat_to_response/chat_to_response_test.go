@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -42,6 +43,11 @@ import (
 	"github.com/hcd233/aris-mass/internal/infrastructure/transport"
 	"github.com/hcd233/aris-mass/internal/router"
 )
+
+func TestMain(m *testing.M) {
+	httpclient.InitHTTPClient()
+	os.Exit(m.Run())
+}
 
 type (
 	stubPingHandler      struct{ handler.PingHandler }
@@ -166,7 +172,6 @@ func newFixture(t *testing.T, supportChat bool, upstreamHandler http.HandlerFunc
 		t.Fatalf("migrate: %v", err)
 	}
 
-	httpclient.InitHTTPClient()
 	registry := metrics.NewRegistry()
 	tracker := inflight.NewTracker()
 	guard := transport.NewEndpointGuard(registry)
@@ -275,10 +280,14 @@ func (f *fixture) waitReady(t *testing.T) {
 	t.Fatal("server not ready in 10s")
 }
 
-func (f *fixture) postChat(t *testing.T, body string) *http.Response {
+func (f *fixture) postChat(t *testing.T, name string) *http.Response {
 	t.Helper()
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
-		f.baseURL+"/api/openai/v1/chat/completions", strings.NewReader(body))
+	body, err := os.ReadFile("fixtures/requests/" + name + ".json")
+	if err != nil {
+		t.Fatalf("read request fixture %s: %v", name, err)
+	}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost,
+		f.baseURL+"/api/openai/v1/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("build request: %v", err)
 	}
@@ -291,16 +300,6 @@ func (f *fixture) postChat(t *testing.T, body string) *http.Response {
 	return resp
 }
 
-const toolRequestBody = `{
-	"model":"c2r-alias",
-	"messages":[
-		{"role":"system","content":"sys"},
-		{"role":"user","content":"深圳天气？"}
-	],
-	"tools":[{"type":"function","function":{"name":"get_weather","parameters":{"type":"object","properties":{"city":{"type":"string"}}}}}],
-	"stream":false
-}`
-
 // 非流式 + 工具调用：上游收 Responses 流式请求，客户端收聚合后的完整 ChatCompletion。
 func TestChatToResponse_UnaryWithTools(t *testing.T) {
 	t.Parallel()
@@ -309,7 +308,7 @@ func TestChatToResponse_UnaryWithTools(t *testing.T) {
 		_, _ = io.WriteString(w, toolSSE)
 	})
 
-	resp := f.postChat(t, toolRequestBody)
+	resp := f.postChat(t, "tools")
 	defer func() { _ = resp.Body.Close() }() //nolint:errcheck // test cleanup
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
@@ -325,6 +324,9 @@ func TestChatToResponse_UnaryWithTools(t *testing.T) {
 	}
 	if upstreamReq.Stream == nil || !*upstreamReq.Stream {
 		t.Fatal("upstream stream 必须为 true")
+	}
+	if upstreamReq.Store == nil || *upstreamReq.Store {
+		t.Fatal("Chat 缺省 store 时，上游应收到显式的 store=false")
 	}
 	if upstreamReq.Instructions == nil || *upstreamReq.Instructions != "sys" {
 		t.Fatalf("upstream instructions = %v", upstreamReq.Instructions)
@@ -391,8 +393,7 @@ func TestChatToResponse_Stream(t *testing.T) {
 		}
 	})
 
-	body := strings.Replace(toolRequestBody, `"stream":false`, `"stream":true`, 1)
-	resp := f.postChat(t, body)
+	resp := f.postChat(t, "tools_stream")
 	defer func() { _ = resp.Body.Close() }() //nolint:errcheck // test cleanup
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
@@ -428,8 +429,8 @@ func TestChatToResponse_Stream(t *testing.T) {
 	if !done {
 		t.Fatal("未收到 [DONE]")
 	}
-	if len(chunks) != 4 {
-		t.Fatalf("chunks = %d, want 4", len(chunks))
+	if len(chunks) != 5 {
+		t.Fatalf("chunks = %d, want 4 choice chunks and one usage chunk", len(chunks))
 	}
 	if chunks[0].Choices[0].Delta.Role != enum.RoleAssistant || chunks[0].Choices[0].Delta.Content == nil || *chunks[0].Choices[0].Delta.Content != "ok" {
 		t.Fatalf("first chunk = %+v", chunks[0].Choices[0].Delta)
@@ -439,6 +440,25 @@ func TestChatToResponse_Stream(t *testing.T) {
 	}
 	if chunks[3].Choices[0].FinishReason == nil || *chunks[3].Choices[0].FinishReason != enum.FinishReasonToolCalls {
 		t.Fatalf("final chunk = %+v", chunks[3].Choices[0])
+	}
+	usageChunk := chunks[4]
+	if usageChunk.Choices == nil || len(usageChunk.Choices) != 0 || usageChunk.Usage == nil || usageChunk.Usage.TotalTokens != 15 {
+		t.Fatalf("usage chunk = %+v, want empty choices and total usage of 15", usageChunk)
+	}
+}
+
+func TestChatToResponse_UpstreamClosesBeforeTerminal(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t, false, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "event: response.output_text.delta\ndata: {\"delta\":\"partial\"}\n\n")
+	})
+
+	resp := f.postChat(t, "tools")
+	defer func() { _ = resp.Body.Close() }() //nolint:errcheck // test cleanup
+	if resp.StatusCode != http.StatusBadGateway {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status = %d, want 502, body: %s", resp.StatusCode, body)
 	}
 }
 
@@ -456,16 +476,7 @@ data: {"type":"response.completed","response":{"id":"resp_2","status":"completed
 `)
 	})
 
-	body := `{
-		"model":"c2r-alias",
-		"messages":[
-			{"role":"user","content":"深圳天气？"},
-			{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"SZ\"}"}}]},
-			{"role":"tool","tool_call_id":"call_1","content":"sunny"}
-		],
-		"stream":false
-	}`
-	resp := f.postChat(t, body)
+	resp := f.postChat(t, "tools_multi_turn")
 	defer func() { _ = resp.Body.Close() }() //nolint:errcheck // test cleanup
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
@@ -507,7 +518,7 @@ func TestChatToResponse_ChatCapableEndpointStaysNative(t *testing.T) {
 		_, _ = io.WriteString(w, `{"id":"chatcmpl-native","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"native-ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
 	})
 
-	resp := f.postChat(t, `{"model":"c2r-alias","messages":[{"role":"user","content":"hi"}],"stream":false}`)
+	resp := f.postChat(t, "native")
 	defer func() { _ = resp.Body.Close() }() //nolint:errcheck // test cleanup
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {

@@ -88,7 +88,7 @@ _Avoid_: endpoint retry, failover retry
 _Avoid_: sticky routing, session affinity
 
 **Cross-Protocol Conversion（跨协议转换）**:
-网关的核心能力：客户端使用 OpenAI 协议，网关可将其转换为 Anthropic 协议再转发，反之亦然。覆盖 8 条转发路径（OpenAI Chat native、Chat→Anthropic、Chat→Response、Response native、Response→Chat、Response→Anthropic、Anthropic Message native、Message→Chat）。Chat→Response 以 `CompatRouteViaOpenAIResponse` 兜底（native → viaAnthropic → viaResponse），上游统一走 SSE：请求侧 system/developer 合并为 `instructions`、assistant 历史丢弃 reasoning、tool 消息转 `function_call_output`（call_id 保留），响应侧 Responses 事件流转 Chat chunk（并行 tool_call 按 item_id 分配 index）；客户端非流式由 ChatCompletionStreamAggregator 聚合成完整响应（`object` 归一化为 `chat.completion`），审计记 `upstream_protocol=openai-response`。
+网关覆盖 8 条转发路径，包括 3 条原生路径（OpenAI Chat、OpenAI Responses、Anthropic Messages）及 5 条转换路径（Chat→Anthropic、Chat→Responses、Responses→Chat、Responses→Anthropic、Messages→Chat）。Chat→Responses 以 `CompatRouteViaOpenAIResponse` 兜底（native → viaAnthropic → viaResponse）。Chat 的 `n > 1` 仅选择原生端点，所有候选都需转换时返回参数错误。Chat→Responses 合并 system/developer 为 `instructions`，丢弃 assistant 历史的 reasoning，按历史调用的 `call_id` 区分 `function_call_output` 和 `custom_tool_call_output`，并保留 Chat 缺省 `store=false` 的语义。上游统一走 SSE，响应使用每次请求唯一的 Chat completion ID，并行工具调用按 `item_id` 分配 index。流式客户端通过 `stream_options.include_usage` 订阅独立的用量帧，非流式客户端由 ChatCompletionStreamAggregator 聚合完整响应和用量。缺失终态和上游错误均按失败处理，终局审计按实际转发协议记录。
 _Avoid_: protocol translation, api bridge
 
 **ModelCapabilities（模型能力）**:

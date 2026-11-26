@@ -365,7 +365,7 @@ const (
 	ResponseStatusQueued ResponseStatus = "queued"
 )
 
-// ResponseStreamEventType Response API SSE 事件类型（只枚举网关感知的终态事件）
+// ResponseStreamEventType 网关感知的 Response API SSE 事件类型
 type ResponseStreamEventType = string
 
 const (
@@ -377,6 +377,8 @@ const (
 	ResponseStreamEventCompleted ResponseStreamEventType = "response.completed"
 	// ResponseStreamEventFailed 响应失败
 	ResponseStreamEventFailed ResponseStreamEventType = "response.failed"
+	// ResponseStreamEventError 流中单独上报的错误
+	ResponseStreamEventError ResponseStreamEventType = "error"
 	// ResponseStreamEventIncomplete 响应未完成
 	ResponseStreamEventIncomplete ResponseStreamEventType = "response.incomplete"
 	// ResponseStreamEventOutputItemAdded 输出项添加事件

@@ -5,6 +5,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/samber/lo"
+
 	"github.com/hcd233/aris-mass/internal/application/llmproxy/usecase"
 	"github.com/hcd233/aris-mass/internal/common/enum"
 	"github.com/hcd233/aris-mass/internal/common/ierr"
@@ -37,8 +39,14 @@ type multiCandidateResolver struct {
 	cands []service.Candidate
 }
 
-func (r *multiCandidateResolver) ResolveCandidates(_ context.Context, _ uint, _ vo.EndpointAlias, _ func(*aggregate.Endpoint) bool) ([]service.Candidate, error) {
-	return r.cands, nil
+func (r *multiCandidateResolver) ResolveCandidates(_ context.Context, _ uint, _ vo.EndpointAlias, matcher func(*aggregate.Endpoint) bool) ([]service.Candidate, error) {
+	candidates := lo.Filter(r.cands, func(candidate service.Candidate, _ int) bool {
+		return matcher == nil || matcher(candidate.Endpoint)
+	})
+	if len(candidates) == 0 {
+		return nil, ierr.New(ierr.ErrDataNotExists, "no eligible candidate")
+	}
+	return candidates, nil
 }
 
 func (r *multiCandidateResolver) ResolveCandidatesWithAffinity(ctx context.Context, userID uint, alias vo.EndpointAlias, _ string, matcher func(*aggregate.Endpoint) bool) ([]service.Candidate, error) {

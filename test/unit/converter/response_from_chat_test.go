@@ -3,9 +3,11 @@ package converter
 import (
 	"testing"
 
+	"github.com/bytedance/sonic"
 	"github.com/samber/lo"
 
 	"github.com/hcd233/aris-mass/internal/application/llmproxy/converter"
+	proxyutil "github.com/hcd233/aris-mass/internal/application/llmproxy/util"
 	"github.com/hcd233/aris-mass/internal/common/enum"
 	"github.com/hcd233/aris-mass/internal/dto"
 	"github.com/hcd233/aris-mass/internal/dto/schema"
@@ -191,6 +193,41 @@ func TestToResponseRequest_MaxTokensFallbackAndEmptyInstructions(t *testing.T) {
 	}
 }
 
+func TestToResponseRequest_Store(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		store    *bool
+		expected bool
+	}{
+		{name: "omitted", expected: false},
+		{name: "explicit false", store: lo.ToPtr(false), expected: false},
+		{name: "explicit true", store: lo.ToPtr(true), expected: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			req := &dto.OpenAIChatCompletionReq{
+				Model:    "alias",
+				Messages: []*dto.OpenAIChatCompletionMessageParam{chatTextMessage(enum.RoleUser, "hi")},
+				Store:    tt.store,
+			}
+			got, err := (&converter.ResponseProtocolConverter{}).ToResponseRequest(req)
+			if err != nil {
+				t.Fatalf("ToResponseRequest() error: %v", err)
+			}
+			body := proxyutil.MarshalOpenAIResponseBodyForModel(got, "upstream")
+			var upstream dto.OpenAICreateResponseReq
+			if err := sonic.Unmarshal(body, &upstream); err != nil {
+				t.Fatalf("decode Responses upstream request: %v", err)
+			}
+			if upstream.Store == nil || *upstream.Store != tt.expected {
+				t.Fatalf("upstream body = %s, want store=%t", body, tt.expected)
+			}
+		})
+	}
+}
+
 func TestToResponseRequest_RejectsMultipleChoices(t *testing.T) {
 	t.Parallel()
 	req := &dto.OpenAIChatCompletionReq{
@@ -221,9 +258,15 @@ func TestToResponseRequest_CustomToolHistoryUnwrapped(t *testing.T) {
 					Function: &dto.OpenAIChatCompletionMessageFunctionToolCall{Name: "apply_patch", Arguments: `{"content":"patch-body"}`},
 				}},
 			},
+			{
+				Role:       enum.RoleTool,
+				ToolCallID: lo.ToPtr("call_9"),
+				Content:    &dto.OpenAIMessageContent{Text: "applied"},
+			},
 		},
 	}
-	got, err := (&converter.ResponseProtocolConverter{}).ToResponseRequest(req)
+	conv := &converter.ResponseProtocolConverter{}
+	got, err := conv.ToResponseRequest(req)
 	if err != nil {
 		t.Fatalf("ToResponseRequest() error: %v", err)
 	}
@@ -233,5 +276,89 @@ func TestToResponseRequest_CustomToolHistoryUnwrapped(t *testing.T) {
 	}
 	if lo.FromPtr(item.CallID) != "call_9" || lo.FromPtr(item.Input) != "patch-body" {
 		t.Fatalf("custom_tool_call = %+v", item)
+	}
+	output := findResponseItem(got.Input.Items, enum.ResponseInputItemTypeCustomToolCallOutput)
+	if output == nil || lo.FromPtr(output.CallID) != "call_9" || output.Output == nil || output.Output.Text != "applied" {
+		t.Errorf("custom_tool_call_output = %+v, want call_9 with output applied", output)
+	}
+
+	req.Tools = nil
+	got, err = conv.ToResponseRequest(req)
+	if err != nil {
+		t.Fatalf("ToResponseRequest() without tools error: %v", err)
+	}
+	if findResponseItem(got.Input.Items, enum.ResponseInputItemTypeFunctionCall) == nil {
+		t.Error("function call inherited custom tool definition from previous request")
+	}
+}
+
+func TestToResponseRequest_CustomToolHistoryWithoutDefinitions(t *testing.T) {
+	t.Parallel()
+	input := `{"content":"preserve this raw input"}`
+	req := &dto.OpenAIChatCompletionReq{
+		Model: "alias",
+		Messages: []*dto.OpenAIChatCompletionMessageParam{
+			{
+				Role: enum.RoleAssistant,
+				ToolCalls: []*dto.OpenAIChatCompletionMessageToolCall{
+					{
+						ID:     lo.ToPtr("call_custom"),
+						Type:   enum.ToolTypeCustom,
+						Custom: &dto.OpenAIChatCompletionMessageCustomToolCall{Name: "format_note", Input: input},
+					},
+					{
+						ID:       lo.ToPtr("call_function"),
+						Type:     enum.ToolTypeFunction,
+						Function: &dto.OpenAIChatCompletionMessageFunctionToolCall{Name: "format_note", Arguments: `{}`},
+					},
+				},
+			},
+			{
+				Role:       enum.RoleTool,
+				ToolCallID: lo.ToPtr("call_function"),
+				Content:    &dto.OpenAIMessageContent{Text: "function result"},
+			},
+			{
+				Role:       enum.RoleTool,
+				ToolCallID: lo.ToPtr("call_custom"),
+				Content: &dto.OpenAIMessageContent{Parts: []*dto.OpenAIChatCompletionContentPart{
+					{Type: enum.ContentPartTypeText, Text: lo.ToPtr("custom result")},
+				}},
+			},
+		},
+	}
+
+	got, err := (&converter.ResponseProtocolConverter{}).ToResponseRequest(req)
+	if err != nil {
+		t.Fatalf("ToResponseRequest() error: %v", err)
+	}
+	items := got.Input.Items
+	if len(items) != 4 {
+		t.Fatalf("input has %d items, want 4", len(items))
+	}
+	customCall, functionCall, functionOutput, customOutput := items[0], items[1], items[2], items[3]
+	if lo.FromPtr(customCall.Type) != enum.ResponseInputItemTypeCustomToolCall ||
+		lo.FromPtr(customCall.CallID) != "call_custom" || lo.FromPtr(customCall.Input) != input {
+		t.Errorf("custom call type=%q call_id=%q input=%q, want custom_tool_call on call_custom with input %s",
+			lo.FromPtr(customCall.Type), lo.FromPtr(customCall.CallID), lo.FromPtr(customCall.Input), input)
+	}
+	if lo.FromPtr(functionCall.Type) != enum.ResponseInputItemTypeFunctionCall ||
+		lo.FromPtr(functionCall.CallID) != "call_function" || lo.FromPtr(functionCall.Arguments) != `{}` {
+		t.Errorf("function call = %+v, want JSON arguments on call_function", functionCall)
+	}
+	if lo.FromPtr(functionOutput.Type) != enum.ResponseInputItemTypeFunctionCallOutput ||
+		lo.FromPtr(functionOutput.CallID) != "call_function" || functionOutput.Output == nil ||
+		functionOutput.Output.Text != "function result" {
+		t.Errorf("function output = %+v, want function result on call_function", functionOutput)
+	}
+	if lo.FromPtr(customOutput.Type) != enum.ResponseInputItemTypeCustomToolCallOutput ||
+		lo.FromPtr(customOutput.CallID) != "call_custom" || customOutput.Output == nil ||
+		customOutput.Output.FunctionOutput == nil {
+		t.Fatalf("custom output type=%q call_id=%q output=%+v, want structured custom result on call_custom",
+			lo.FromPtr(customOutput.Type), lo.FromPtr(customOutput.CallID), customOutput.Output)
+	}
+	parts := customOutput.Output.FunctionOutput.Parts
+	if len(parts) != 1 || parts[0].Type != enum.ResponseContentTypeInputText || lo.FromPtr(parts[0].Text) != "custom result" {
+		t.Fatalf("custom output parts = %+v, want input_text custom result", parts)
 	}
 }

@@ -1,0 +1,18 @@
+{
+  "model": "c2r-alias",
+  "messages": [
+    { "role": "system", "content": "sys" },
+    { "role": "user", "content": "深圳天气？" }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "parameters": { "type": "object", "properties": { "city": { "type": "string" } } }
+      }
+    }
+  ],
+  "stream": true,
+  "stream_options": { "include_usage": true }
+}

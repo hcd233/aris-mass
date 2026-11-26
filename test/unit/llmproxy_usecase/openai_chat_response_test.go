@@ -13,8 +13,10 @@ import (
 
 	"github.com/hcd233/aris-mass/internal/application/llmproxy/port"
 	"github.com/hcd233/aris-mass/internal/application/llmproxy/usecase"
+	"github.com/hcd233/aris-mass/internal/common/constant"
 	"github.com/hcd233/aris-mass/internal/common/enum"
 	"github.com/hcd233/aris-mass/internal/common/model"
+	"github.com/hcd233/aris-mass/internal/domain/llmproxy/service"
 	"github.com/hcd233/aris-mass/internal/domain/llmproxy/vo"
 	"github.com/hcd233/aris-mass/internal/dto"
 	"github.com/hcd233/aris-mass/internal/dto/schema"
@@ -196,6 +198,9 @@ func TestForwardChatViaResponse_Stream(t *testing.T) {
 	}
 	var chunks []*dto.OpenAIChatCompletionChunk
 	for _, ev := range sink.events[:4] {
+		if strings.Contains(ev[1], `"usage"`) {
+			t.Errorf("chunk includes usage without an opt-in: %s", ev[1])
+		}
 		chunk := &dto.OpenAIChatCompletionChunk{}
 		if err := sonic.UnmarshalString(ev[1], chunk); err != nil {
 			t.Fatalf("chunk unmarshal error: %v", err)
@@ -213,6 +218,216 @@ func TestForwardChatViaResponse_Stream(t *testing.T) {
 	}
 	if sink.events[4][1] != "[DONE]" {
 		t.Fatalf("last event = %q, want [DONE]", sink.events[4][1])
+	}
+}
+
+func TestForwardChatViaResponse_StreamUsage(t *testing.T) {
+	t.Parallel()
+	proxy := &chatViaResponseMock{events: chatViaResponseToolEvents()}
+	submitter := &capturingTaskSubmitter{}
+	resolver := &mockResolver{resolveEndpoint: buildCompatEndpoint("response-only", false, true, false), resolveModel: buildTestModel()}
+	uc := usecase.NewOpenAIUseCase(resolver, &mockListModels{}, proxy, &mockAnthropicProxyForOpenAI{}, submitter, nil, nil, nil, nil)
+	req := chatViaResponseRequest(true)
+	req.Body.StreamOptions = &dto.OpenAIChatCompletionStreamOptions{IncludeUsage: lo.ToPtr(true)}
+
+	result, err := uc.CreateChatCompletion(t.Context(), req)
+	if err != nil {
+		t.Fatalf("CreateChatCompletion() error: %v", err)
+	}
+	stream, err := result.(*port.StreamResult).Open()
+	if err != nil {
+		t.Fatalf("Open() error: %v", err)
+	}
+	t.Cleanup(func() { _ = stream.Close() }) //nolint:errcheck // test cleanup
+	sink := &collectEventSink{}
+	if err := stream.Read(t.Context(), sink); err != nil {
+		t.Fatalf("Read() error: %v", err)
+	}
+	if len(sink.events) != 6 || sink.events[5][1] != "[DONE]" {
+		t.Fatalf("events = %+v, want 4 choice chunks, a usage chunk, then DONE", sink.events)
+	}
+	for _, event := range sink.events[:4] {
+		if !strings.Contains(event[1], `"usage":null`) {
+			t.Errorf("choice chunk should report null usage: %s", event[1])
+		}
+	}
+	var usageChunk, finishChunk dto.OpenAIChatCompletionChunk
+	if err := sonic.UnmarshalString(sink.events[4][1], &usageChunk); err != nil {
+		t.Fatal(err)
+	}
+	if err := sonic.UnmarshalString(sink.events[3][1], &finishChunk); err != nil {
+		t.Fatal(err)
+	}
+	if usageChunk.Choices == nil || len(usageChunk.Choices) != 0 || usageChunk.Usage == nil || usageChunk.Usage.TotalTokens != 15 {
+		t.Fatalf("usage chunk = %s, want empty choices and total usage of 15", sink.events[4][1])
+	}
+	if usageChunk.ID != finishChunk.ID || usageChunk.Created != finishChunk.Created {
+		t.Fatalf("usage and finish chunks have different completion metadata: %+v, %+v", usageChunk, finishChunk)
+	}
+	if len(submitter.auditTasks) != 1 || submitter.auditTasks[0].OutputTokens != 5 {
+		t.Fatalf("audit tasks = %+v, want one call with 5 output tokens", submitter.auditTasks)
+	}
+}
+
+func TestForwardChatViaResponse_AbnormalStreamEnd(t *testing.T) {
+	t.Parallel()
+	partial := chatViaResponseToolEvents()[:1]
+	upstreamError := [][2]string{{"error", `{"type":"error","code":"overloaded","message":"upstream overloaded"}`}}
+	cases := []struct {
+		name     string
+		stream   bool
+		events   [][2]string
+		wantCode string
+	}{
+		{name: "unary unexpected eof", events: partial},
+		{name: "stream unexpected eof", stream: true, events: partial},
+		{name: "unary upstream error", events: upstreamError, wantCode: "overloaded"},
+		{name: "stream upstream error", stream: true, events: upstreamError, wantCode: "overloaded"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			proxy := &chatViaResponseMock{events: tc.events}
+			submitter := &capturingTaskSubmitter{}
+			resolver := &mockResolver{resolveEndpoint: buildCompatEndpoint("response-only", false, true, false), resolveModel: buildTestModel()}
+			uc := usecase.NewOpenAIUseCase(resolver, &mockListModels{}, proxy, &mockAnthropicProxyForOpenAI{}, submitter, nil, nil, nil, nil)
+			result, err := uc.CreateChatCompletion(t.Context(), chatViaResponseRequest(tc.stream))
+			var errorBody []byte
+			if tc.stream {
+				if err != nil {
+					t.Fatalf("CreateChatCompletion() error: %v", err)
+				}
+				stream, openErr := result.(*port.StreamResult).Open()
+				if openErr != nil {
+					t.Fatalf("Open() error: %v", openErr)
+				}
+				t.Cleanup(func() { _ = stream.Close() }) //nolint:errcheck // test cleanup
+				sink := &collectEventSink{}
+				if readErr := stream.Read(t.Context(), sink); readErr == nil {
+					t.Fatal("Read() succeeded without a successful terminal response")
+				}
+				for _, event := range sink.events {
+					if event[1] == "[DONE]" {
+						t.Fatal("abnormal stream sent DONE")
+					}
+				}
+				if len(sink.events) == 0 {
+					t.Fatal("abnormal stream sent no error frame")
+				}
+				errorBody = []byte(sink.events[len(sink.events)-1][1])
+			} else {
+				var proxyErr *port.ProxyError
+				if !errors.As(err, &proxyErr) || proxyErr.StatusCode != http.StatusBadGateway || result != nil {
+					t.Fatalf("result = %T, err = %v, want upstream 502", result, err)
+				}
+				errorBody = proxyErr.Body
+			}
+			var openAIErr dto.OpenAIErrorResponse
+			if err := sonic.Unmarshal(errorBody, &openAIErr); err != nil || openAIErr.Error == nil {
+				t.Fatalf("want an OpenAI error envelope, got %s (%v)", errorBody, err)
+			}
+			if tc.wantCode != "" && openAIErr.Error.Code != tc.wantCode {
+				t.Fatalf("error code = %q, want %q", openAIErr.Error.Code, tc.wantCode)
+			}
+			if len(submitter.auditTasks) != 1 || submitter.auditTasks[0].UpstreamStatusCode == http.StatusOK {
+				t.Fatalf("audit tasks = %+v, want one failed call", submitter.auditTasks)
+			}
+		})
+	}
+}
+
+func TestCreateChatCompletion_MultipleChoicesRequiresNativeEndpoint(t *testing.T) {
+	t.Parallel()
+	responseOnly := service.Candidate{Endpoint: buildCompatEndpoint("response-only", false, true, false), Model: buildTestModel()}
+	anthropicOnly := service.Candidate{Endpoint: buildCompatEndpoint("anthropic-only", false, false, true), Model: buildTestModel()}
+	native := service.Candidate{Endpoint: buildCompatEndpoint("native", true, false, false), Model: buildTestModel()}
+	cases := []struct {
+		name       string
+		candidates []service.Candidate
+		wantNative bool
+	}{
+		{name: "native candidate", candidates: []service.Candidate{responseOnly, native}, wantNative: true},
+		{name: "native after both conversion candidates", candidates: []service.Candidate{responseOnly, anthropicOnly, native}, wantNative: true},
+		{name: "responses only", candidates: []service.Candidate{responseOnly}},
+		{name: "both conversion candidates", candidates: []service.Candidate{responseOnly, anthropicOnly}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			proxy := &chatViaResponseMock{events: chatViaResponseToolEvents()}
+			resolver := &multiCandidateResolver{cands: tc.candidates}
+			uc := usecase.NewOpenAIUseCase(resolver, &mockListModels{}, proxy, &mockAnthropicProxyForOpenAI{}, &mockTaskSubmitter{}, nil, nil, nil, nil)
+			req := chatViaResponseRequest(false)
+			req.Body.N = lo.ToPtr(2)
+			result, err := uc.CreateChatCompletion(t.Context(), req)
+			if tc.wantNative {
+				if err != nil || result == nil || !proxy.chatUnaryCalled || len(proxy.lastBody) != 0 {
+					t.Fatalf("result = %T, err = %v, want native Chat result", result, err)
+				}
+				return
+			}
+			var proxyErr *port.ProxyError
+			if !errors.As(err, &proxyErr) || proxyErr.StatusCode != http.StatusBadRequest {
+				t.Fatalf("err = %v, want invalid request 400", err)
+			}
+			var openAIErr dto.OpenAIErrorResponse
+			if err := sonic.Unmarshal(proxyErr.Body, &openAIErr); err != nil || openAIErr.Error == nil {
+				t.Fatalf("want an OpenAI error envelope, got %s (%v)", proxyErr.Body, err)
+			}
+			if lo.FromPtr(openAIErr.Error.Param) != "n" || len(proxy.lastBody) != 0 {
+				t.Fatalf("error = %+v, want rejected parameter n before upstream", openAIErr.Error)
+			}
+		})
+	}
+}
+
+type chatViaResponseUsageReporter int64
+
+func (r *chatViaResponseUsageReporter) Report(_ context.Context, tokens int64) {
+	*r += chatViaResponseUsageReporter(tokens)
+}
+
+func TestForwardChatViaResponse_FallbackAuditsFinalAttempt(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name       string
+		events     [][2]string
+		wantTokens int64
+	}{
+		{name: "truncated response", events: chatViaResponseToolEvents()[:1], wantTokens: 2},
+		{
+			name: "billed upstream failure",
+			events: [][2]string{{
+				enum.ResponseStreamEventFailed,
+				`{"response":{"status":"failed","error":{"code":"server_error","message":"unavailable"},"usage":{"input_tokens":3,"output_tokens":4}}}`,
+			}},
+			wantTokens: 9,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			proxy := &chatViaResponseMock{events: tc.events}
+			submitter := &capturingTaskSubmitter{}
+			resolver := &multiCandidateResolver{cands: []service.Candidate{
+				{Endpoint: buildCompatEndpoint("response-only", false, true, false), Model: buildTestModel()},
+				{Endpoint: buildCompatEndpoint("native", true, false, false), Model: buildTestModel()},
+			}}
+			uc := usecase.NewOpenAIUseCase(resolver, &mockListModels{}, proxy, &mockAnthropicProxyForOpenAI{}, submitter, nil, nil, nil, nil)
+			var reporter chatViaResponseUsageReporter
+			ctx := context.WithValue(t.Context(), constant.CtxKeyTokenUsageReporter, &reporter)
+
+			result, err := uc.CreateChatCompletion(ctx, chatViaResponseRequest(false))
+			if err != nil || result == nil || !proxy.chatUnaryCalled {
+				t.Fatalf("result = %T, err = %v, want successful native fallback", result, err)
+			}
+			if len(submitter.auditTasks) != 1 || submitter.auditTasks[0].Endpoint != "native" {
+				t.Fatalf("audit tasks = %+v, want only the final native attempt", submitter.auditTasks)
+			}
+			if int64(reporter) != tc.wantTokens {
+				t.Fatalf("reported tokens = %d, want %d", reporter, tc.wantTokens)
+			}
+		})
 	}
 }
 

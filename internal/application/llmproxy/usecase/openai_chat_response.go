@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"cmp"
 	"context"
 	"io"
 	"net/http"
@@ -19,6 +20,24 @@ import (
 	"github.com/hcd233/aris-mass/internal/dto"
 	"github.com/hcd233/aris-mass/internal/logger"
 )
+
+var unsupportedChatChoiceCountBody = lo.Must1(sonic.Marshal(&dto.OpenAIErrorResponse{
+	Error: &dto.OpenAIError{
+		Message: constant.OpenAIChatChoiceCountMessage,
+		Type:    constant.OpenAIInvalidRequestErrorType,
+		Param:   lo.ToPtr(constant.OpenAIChatChoiceCountParam),
+		Code:    constant.OpenAIUnsupportedValueCode,
+	},
+}))
+
+func unsupportedChatChoicesError() *port.ProxyError {
+	return &port.ProxyError{
+		StatusCode: http.StatusBadRequest,
+		Headers:    map[string]string{constant.HTTPHeaderContentType: constant.HTTPContentTypeJSON},
+		Body:       unsupportedChatChoiceCountBody,
+		Protocol:   enum.ProtocolKindOpenAI,
+	}
+}
 
 // forwardChatViaResponse Chat Completions 客户端 → Responses 上游（CompatRouteViaOpenAIResponse）。
 // 上游统一走 SSE（Codex 订阅强制 stream=true），客户端非流式由 consumer 聚合为完整响应。
@@ -88,6 +107,9 @@ func (s *chatViaResponseConsumer) consume(ctx context.Context, onChunk func(*dto
 		if convErr != nil {
 			return convErr
 		}
+		if rsp := s.conv.FinalResponse(); rsp != nil && rsp.Status == enum.ResponseStatusFailed {
+			return responseFailedUpstreamError(rsp)
+		}
 		for _, chunk := range chunks {
 			s.agg.Add(chunk)
 			if onChunk == nil {
@@ -100,19 +122,13 @@ func (s *chatViaResponseConsumer) consume(ctx context.Context, onChunk func(*dto
 		return nil
 	})
 	s.timer.finish()
-	return err
-}
-
-// streamError 汇总读取错误与 in-band response.failed（HTTP 200 但终态失败）。
-func (s *chatViaResponseConsumer) streamError(readErr error) error {
-	if readErr != nil {
-		return readErr
+	if err != nil {
+		return err
 	}
-	rsp := s.conv.FinalResponse()
-	if rsp == nil || rsp.Status != enum.ResponseStatusFailed {
-		return nil
+	if s.conv.FinalResponse() == nil {
+		return &model.UpstreamConnectionError{Cause: cmp.Or(ctx.Err(), io.ErrUnexpectedEOF)}
 	}
-	return responseFailedUpstreamError(rsp)
+	return nil
 }
 
 func (s *chatViaResponseConsumer) completion() *dto.OpenAIChatCompletion {
@@ -143,8 +159,7 @@ func (s *chatViaResponseConsumer) record(err error, successStatus bool) {
 
 // unary 聚合上游 SSE 为完整 ChatCompletion（客户端非流式）。
 func (s *chatViaResponseConsumer) unary(ctx context.Context) (port.Result, error) {
-	readErr := s.consume(ctx, nil)
-	if err := s.streamError(readErr); err != nil {
+	if err := s.consume(ctx, nil); err != nil {
 		s.record(err, false)
 		return nil, ProxyErrorFromUpstream(err, enum.ProtocolKindOpenAI, openAIInternalErrorBody)
 	}
@@ -169,16 +184,38 @@ type chatViaResponseStream struct {
 	*chatViaResponseConsumer
 }
 
+// chatChunkWithUsage 保留 include_usage 所需的 usage 字段，包括普通 chunk 的 null 值。
+type chatChunkWithUsage struct {
+	*dto.OpenAIChatCompletionChunk
+	Usage *dto.OpenAICompletionUsage `json:"usage"`
+}
+
 func (s *chatViaResponseStream) Read(ctx context.Context, sink port.EventSink) error {
-	readErr := s.consume(ctx, func(chunk *dto.OpenAIChatCompletionChunk) error {
-		chunkData, marshalErr := sonic.Marshal(chunk)
+	options := s.req.Body.StreamOptions
+	includeUsage := options != nil && lo.FromPtr(options.IncludeUsage)
+	err := s.consume(ctx, func(chunk *dto.OpenAIChatCompletionChunk) error {
+		if !includeUsage && chunk.Usage != nil {
+			return nil
+		}
+
+		var (
+			chunkData  []byte
+			marshalErr error
+		)
+		if includeUsage {
+			chunkData, marshalErr = sonic.Marshal(chatChunkWithUsage{
+				OpenAIChatCompletionChunk: chunk,
+				Usage:                     chunk.Usage,
+			})
+		} else {
+			chunkData, marshalErr = sonic.Marshal(chunk)
+		}
 		if marshalErr != nil {
 			logger.WithCtx(ctx).Error("[OpenAIUseCase] Failed to marshal chunk", logger.ErrorFields(marshalErr)...)
 			return marshalErr
 		}
 		return sink.WriteEvent("", chunkData)
 	})
-	err := s.streamError(readErr)
 	if err != nil {
 		proxyutil.WriteUpstreamSSEError(ctx, sink, err, enum.ProtocolKindOpenAI)
 	} else {
@@ -193,17 +230,13 @@ func (s *chatViaResponseStream) Close() error {
 	return s.stream.Close()
 }
 
-// responseFailedUpstreamError 将 response.failed 终态转换为上游错误（SSE 错误帧/非流式 502）。
+// responseFailedUpstreamError 将 Responses 流中的失败转换为上游错误。
 func responseFailedUpstreamError(rsp *dto.OpenAICreateResponseRsp) *model.UpstreamError {
 	message := constant.OpenAIInternalErrorMessage
 	code := constant.OpenAIInternalErrorCode
 	if rsp.Error != nil {
-		if rsp.Error.Message != "" {
-			message = rsp.Error.Message
-		}
-		if rsp.Error.Code != "" {
-			code = rsp.Error.Code
-		}
+		message = cmp.Or(rsp.Error.Message, message)
+		code = cmp.Or(rsp.Error.Code, code)
 	}
 	body := lo.Must1(sonic.Marshal(&dto.OpenAIErrorResponse{
 		Error: &dto.OpenAIError{Message: message, Type: constant.OpenAIInternalErrorType, Code: code},

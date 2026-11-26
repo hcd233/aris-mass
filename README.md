@@ -52,7 +52,7 @@ Legend: ✅ yes · ◐ partial · — no. Ratings follow each project's own READ
 
 **1 · Ingress protocols** — Aris ◐: text only (Chat/Responses/Messages + native Decision passthrough). new-api: four text protocols + Realtime/Responses WebSocket + media + task-plugin routes, ~60 channel types. LiteLLM: widest — batches, files, fine-tuning, evals, realtime, videos, ocr, search, memory, native Bedrock/Vertex, MCP + A2A. sub2api ◐: subscription-client shaped (Responses incl. `/backend-api/codex/responses`, Messages, Chat, `/v1/systemone`, Antigravity).
 
-**2 · Cross-protocol translation** — Aris: 7 OpenAI ↔ Anthropic paths incl. SSE events. new-api: RelayKit converts the four text protocols, warning that protocol-specific tools/fields may not map exactly. LiteLLM: `/v1/messages` for all supported providers, but its Rust core covers only a few routes. sub2api ◐: provider-targeted conversions (Anthropic → xAI Responses, Codex Responses ← Chat, Antigravity).
+**2 · Cross-protocol translation** — Aris supports eight forwarding paths across Chat, Responses and Messages (three native, five translated), including Chat → Responses. Translation covers SSE events. new-api: RelayKit converts the four text protocols, warning that protocol-specific tools/fields may not map exactly. LiteLLM: `/v1/messages` for all supported providers, but its Rust core covers only a few routes. sub2api ◐: provider-targeted conversions (Anthropic → xAI Responses, Codex Responses ← Chat, Antigravity).
 
 **3 · Upstream channel types** — Aris ✅: `api_key` plus subscription OAuth endpoints (`oauth_anthropic` / `oauth_openai`, AES-256-GCM, refreshed with a 3-minute skew) sharing one forwarding path. new-api ◐: ~60 API-key types plus `ChannelTypeCodex = 57 "ChatGPT Subscription (Codex)"` (OAuth key JSON, `/v1/responses` only); the Claude Code OAuth channel (former type 53) was **reverted**. LiteLLM ✅: API keys plus ChatGPT-subscription device flow and per-user Copilot OAuth — the former has no cost-map price (spend stays $0); Anthropic Pro/Max undocumented. OmniRoute ✅: four-tier fallback (Subscription → API Key → Cheap → Free) with PKCE logins. sub2api ✅: pooled OAuth subscription accounts (Claude/Codex/Grok/Antigravity) with sticky sessions.
 
@@ -112,7 +112,7 @@ The diagram set follows MECE: each diagram answers one question, while static st
 
 ### Proxy & upstream
 
-**03 · LLM proxy path**: API-key auth → request/token rate limits → trigger words → candidate resolution → tool-output compression and protocol conversion → Guard / retry / fallback → upstream. Seven OpenAI ↔ Anthropic conversion paths plus native Decision forwarding are supported. JSON / SSE responses return synchronously; session and audit work is only handed off at completion. [Interactive HTML](docs/diagrams/archify/aris-arch-03.html)
+**03 · LLM proxy path**: API-key auth → request/token rate limits → trigger words → candidate resolution → tool-output compression and protocol conversion → Guard / retry / fallback → upstream. Chat, Responses and Messages have eight forwarding paths (three native, five translated), plus native Decision forwarding. JSON / SSE responses return synchronously; session and audit work is only handed off at completion. [Interactive HTML](docs/diagrams/archify/aris-arch-03.html)
 
 ![LLM proxy path](docs/diagrams/archify/aris-arch-03.gif)
 

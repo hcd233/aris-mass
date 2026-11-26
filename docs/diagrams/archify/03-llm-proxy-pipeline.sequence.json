@@ -54,7 +54,7 @@
   ],
   "cards": [
     { "dot": "cyan", "title": "Pre-checks", "items": ["API Key injects UserID / APIKeyID / Permission; request and token buckets apply", "deny rejects natively; capture preserves prior context; omit skips session storage only"] },
-    { "dot": "amber", "title": "Routing & Conversion", "items": ["Tenant / public / shared pools, priority + A-Res + five-minute affinity", "7 conversion paths + native Decision; DTO compression, then cross-endpoint fallback"] },
+    { "dot": "amber", "title": "Routing & Conversion", "items": ["Tenant / public / shared pools, priority + A-Res + five-minute affinity", "8 paths for Chat, Responses and Messages (3 native, 5 translated), plus native Decision"] },
     { "dot": "emerald", "title": "Sync Response & Async Handoff", "items": ["Endpoints can switch only before streaming starts; delivered SSE never falls back", "recordModelCall captures usage, latency, final state and cost; Pond runs tasks asynchronously"] }
   ]
 }

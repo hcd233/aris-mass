@@ -1,6 +1,7 @@
 package converter
 
 import (
+	"cmp"
 	"strings"
 
 	"github.com/samber/lo"
@@ -16,7 +17,7 @@ import (
 // 与 FromResponseRequest 互为逆方向，共用同一套 DTO 与工具映射：
 //   - system/developer 合并为 instructions（无则给空串，保证字段存在）；
 //   - assistant 历史丢弃 reasoning（对称于 Response→Chat 丢弃 reasoning item）；
-//   - tool 消息转 function_call_output，call_id 原样保留（多轮工具循环闭环）；
+//   - tool 消息按 call_id 匹配历史调用，转为对应类型的输出。
 //   - stream 恒为 true：上游统一走 SSE，客户端非流式由 usecase 聚合。
 func (c *ResponseProtocolConverter) ToResponseRequest(req *dto.OpenAIChatCompletionReq) (*dto.OpenAICreateResponseReq, error) {
 	if req == nil {
@@ -36,7 +37,7 @@ func (c *ResponseProtocolConverter) ToResponseRequest(req *dto.OpenAIChatComplet
 		ParallelToolCalls: req.ParallelToolCalls,
 		PromptCacheKey:    req.PromptCacheKey,
 		SafetyIdentifier:  req.SafetyIdentifier,
-		Store:             req.Store,
+		Store:             cmp.Or(req.Store, lo.ToPtr(false)), // 保持 Chat Completions 默认关闭上游留存。
 		User:              req.User,
 	}
 	if req.MaxCompletionTokens != nil {
@@ -60,14 +61,16 @@ func (c *ResponseProtocolConverter) ToResponseRequest(req *dto.OpenAIChatComplet
 		}
 	}
 
+	var toolTypesByName map[string]string
 	if len(req.Tools) > 0 {
 		out.Tools = chatToolsToResponse(req.Tools)
-		c.toolTypeMap = BuildToolTypeMap(out.Tools)
+		toolTypesByName = BuildToolTypeMap(out.Tools)
 	}
 	out.ToolChoice = chatToolChoiceToResponse(req.ToolChoice)
 
 	instructions := make([]string, 0, 1)
 	items := make([]*dto.ResponseInputItem, 0, len(req.Messages))
+	callTypesByID := make(map[string]string)
 	for _, msg := range req.Messages {
 		if msg == nil {
 			continue
@@ -78,9 +81,9 @@ func (c *ResponseProtocolConverter) ToResponseRequest(req *dto.OpenAIChatComplet
 				instructions = append(instructions, text)
 			}
 		case enum.RoleAssistant:
-			items = append(items, chatMessageToResponseItems(msg, c.toolTypeMap, nil, false)...)
+			items = append(items, chatAssistantHistoryToResponseItems(msg, toolTypesByName, callTypesByID)...)
 		case enum.RoleTool:
-			items = append(items, chatToolMessageToResponseOutput(msg))
+			items = append(items, chatToolMessageToResponseOutput(msg, callTypesByID[lo.FromPtr(msg.ToolCallID)]))
 		default:
 			items = append(items, &dto.ResponseInputItem{
 				Type:    lo.ToPtr(enum.ResponseInputItemTypeMessage),
@@ -92,6 +95,28 @@ func (c *ResponseProtocolConverter) ToResponseRequest(req *dto.OpenAIChatComplet
 	out.Instructions = lo.ToPtr(strings.Join(instructions, constant.ResponseInstructionsJoinSeparator))
 	out.Input = &dto.ResponseInput{Items: items}
 	return out, nil
+}
+
+func chatAssistantHistoryToResponseItems(
+	msg *dto.OpenAIChatCompletionMessageParam,
+	toolTypesByName, callTypesByID map[string]string,
+) []*dto.ResponseInputItem {
+	items := chatMessageToResponseItems(
+		msg,
+		toolTypesByName,
+		nil,
+		false,
+	)
+	for _, item := range items {
+		// 自定义调用携带 input，即使本轮没有工具定义。
+		if item.Input != nil {
+			item.Type = lo.ToPtr(enum.ResponseInputItemTypeCustomToolCall)
+		}
+		if callID := lo.FromPtr(item.CallID); callID != "" {
+			callTypesByID[callID] = lo.FromPtr(item.Type)
+		}
+	}
+	return items
 }
 
 // chatMessageText 提取消息纯文本（parts 形态拼接 text 片段）。
@@ -111,10 +136,14 @@ func chatMessageText(content *dto.OpenAIMessageContent) string {
 	return sb.String()
 }
 
-// chatToolMessageToResponseOutput 将 Chat tool 消息转为 function_call_output。
-func chatToolMessageToResponseOutput(msg *dto.OpenAIChatCompletionMessageParam) *dto.ResponseInputItem {
+// chatToolMessageToResponseOutput 按原调用类型转换 Chat tool 消息。
+func chatToolMessageToResponseOutput(msg *dto.OpenAIChatCompletionMessageParam, callType string) *dto.ResponseInputItem {
+	outputType := enum.ResponseInputItemTypeFunctionCallOutput
+	if callType == enum.ResponseInputItemTypeCustomToolCall {
+		outputType = enum.ResponseInputItemTypeCustomToolCallOutput
+	}
 	item := &dto.ResponseInputItem{
-		Type:   lo.ToPtr(enum.ResponseInputItemTypeFunctionCallOutput),
+		Type:   lo.ToPtr(outputType),
 		CallID: msg.ToolCallID,
 	}
 	if msg.Content != nil && len(msg.Content.Parts) > 0 {

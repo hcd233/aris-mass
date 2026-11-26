@@ -52,7 +52,7 @@ Aris 将多个 MaaS 平台、多种模型和多种 API 协议统一接入，通�
 
 **1 · 协议入口覆盖** — Aris ◐：仅文本协议（Chat/Responses/Messages + Decision 原生透传）。new-api：四种文本协议 + Realtime/Responses WebSocket + 媒体 + 任务插件路由，约 60 种渠道类型。LiteLLM：面最广——batches/files/fine-tuning/evals/realtime/videos/ocr/search/memory、Bedrock/Vertex 原生、MCP + A2A。sub2api ◐：面向订阅客户端（Responses 含 `/backend-api/codex/responses`、Messages、Chat、`/v1/systemone`、Antigravity）。
 
-**2 · 跨协议转换** — Aris：OpenAI ↔ Anthropic 共 7 条路径，含 SSE 流式事件。new-api：RelayKit 转换四种文本协议，但提示协议特有工具/字段可能无法精确映射。LiteLLM：`/v1/messages` 覆盖全部支持的提供商，Rust 核心仅少量路由。sub2api ◐：按提供商定向转换（Anthropic → xAI Responses、Codex Responses ← Chat、Antigravity）。
+**2 · 跨协议转换** — Aris 为 Chat、Responses 和 Messages 提供 8 条转发路径（3 条原生、5 条转换），包括 Chat → Responses。转换覆盖 SSE 流式事件。new-api：RelayKit 转换四种文本协议，但提示协议特有工具/字段可能无法精确映射。LiteLLM：`/v1/messages` 覆盖全部支持的提供商，Rust 核心仅少量路由。sub2api ◐：按提供商定向转换（Anthropic → xAI Responses、Codex Responses ← Chat、Antigravity）。
 
 **3 · 上游渠道类型** — Aris ✅：`api_key` + 订阅 OAuth 端点（`oauth_anthropic` / `oauth_openai`，AES-256-GCM，3 分钟提前量刷新），共用同一转发链路。new-api ◐：约 60 种 API-Key 渠道 + `ChannelTypeCodex = 57 "ChatGPT Subscription (Codex)"`（OAuth key JSON，仅 `/v1/responses`）；Claude Code OAuth 渠道（原 type 53）**已被回滚**。LiteLLM ✅：API Key + ChatGPT 订阅 device flow + Copilot 逐用户 OAuth，前者无 cost map 价（spend 恒为 $0），Anthropic Pro/Max 未文档化。OmniRoute ✅：四层 fallback（Subscription → API Key → Cheap → Free）+ PKCE 登录。sub2api ✅：OAuth 订阅账号池（Claude/Codex/Grok/Antigravity）+ 粘性会话。
 
@@ -114,7 +114,7 @@ Aris 将多个 MaaS 平台、多种模型和多种 API 协议统一接入，通�
 
 ### 代理与上游
 
-**03 · LLM 代理主链**：API Key 鉴权 → 请求与 Token 双层限流 → 触发词 → 候选解析 → tool output 压缩与跨协议转换 → Guard / 重试 / fallback → 上游。支持 7 条 OpenAI ↔ Anthropic 转换路径及 Decision 原生转发；JSON / SSE 同步返回，会话与审计只在收尾移交异步任务。[交互 HTML](docs/diagrams/archify/aris-arch-03.html)
+**03 · LLM 代理主链**：API Key 鉴权 → 请求与 Token 双层限流 → 触发词 → 候选解析 → tool output 压缩与跨协议转换 → Guard / 重试 / fallback → 上游。Chat、Responses 和 Messages 共支持 8 条转发路径（3 条原生、5 条转换），另有 Decision 原生转发。JSON / SSE 同步返回，会话与审计只在收尾移交异步任务。[交互 HTML](docs/diagrams/archify/aris-arch-03.html)
 
 ![LLM 代理转发核心链路](docs/diagrams/archify/aris-arch-03.gif)
 

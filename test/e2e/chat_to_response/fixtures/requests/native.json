@@ -1,0 +1,5 @@
+{
+  "model": "c2r-alias",
+  "messages": [{ "role": "user", "content": "hi" }],
+  "stream": false
+}

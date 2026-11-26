@@ -127,11 +127,7 @@ type callOutcome struct {
 	responseStatus      *dto.OpenAICreateResponseRsp
 }
 
-// recordModelCall 收敛所有 forward 路径重复的审计尾部：组装 ModelCallAuditTask、
-// 写入 token 计数、上报限流用量、归一化上游状态/错误，最后投递异步审计任务。
-//
-// 这是模型调用收尾的唯一 seam——审计与 token 上报的 bug 只可能出现在这一处，
-// 也只需在这一处测试。
+// recordModelCall 立即上报每次上游尝试的 token 用量，回退时只提交终局审计。
 func recordModelCall(ctx context.Context, submitter TaskSubmitter, tokenMetrics *metrics.TokenUsageCounter, out callOutcome) {
 	task := &dto.ModelCallAuditTask{
 		Ctx:                 util.CopyContextValues(ctx),
@@ -154,6 +150,16 @@ func recordModelCall(ctx context.Context, submitter TaskSubmitter, tokenMetrics 
 		}
 	}
 
+	if out.err != nil {
+		if deferral, ok := ctx.Value(constant.CtxKeyFailureAuditDeferral).(*failureAuditDeferral); ok && deferral.active {
+			deferral.pending = func() { finishModelCall(ctx, submitter, task, out) }
+			return
+		}
+	}
+	finishModelCall(ctx, submitter, task, out)
+}
+
+func finishModelCall(ctx context.Context, submitter TaskSubmitter, task *dto.ModelCallAuditTask, out callOutcome) {
 	if out.successStatus {
 		task.UpstreamStatusCode = http.StatusOK
 	} else {

@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -14,6 +15,7 @@ import (
 	proxyutil "github.com/hcd233/aris-mass/internal/application/llmproxy/util"
 	"github.com/hcd233/aris-mass/internal/common/constant"
 	"github.com/hcd233/aris-mass/internal/common/enum"
+	"github.com/hcd233/aris-mass/internal/common/ierr"
 	"github.com/hcd233/aris-mass/internal/domain/llmproxy/aggregate"
 	"github.com/hcd233/aris-mass/internal/domain/llmproxy/service"
 	"github.com/hcd233/aris-mass/internal/domain/llmproxy/vo"
@@ -169,10 +171,23 @@ func (u *openAIUseCase) CreateChatCompletion(ctx context.Context, req *dto.OpenA
 	var compatRoute enum.CompatRoute
 	userID := util.CtxValueUint(ctx, constant.CtxKeyUserID)
 	affKey, _ := AffinityKey(ctx, req.Body.Model, firstUserTextOpenAIChat(req.Body.Messages))
+	wantsMultipleChoices := lo.FromPtr(req.Body.N) > 1
+	var skippedForChoiceCount bool
 	cands, err := u.resolver.ResolveCandidatesWithAffinity(ctx, userID, vo.EndpointAlias(req.Body.Model), affKey, func(ep *aggregate.Endpoint) bool {
-		return SelectCompatRoute(enum.ProxyAPIOpenAIChat, ep) != enum.CompatRouteUnsupported
+		route := SelectCompatRoute(enum.ProxyAPIOpenAIChat, ep)
+		if route == enum.CompatRouteUnsupported {
+			return false
+		}
+		if wantsMultipleChoices && route != enum.CompatRouteNative {
+			skippedForChoiceCount = true
+			return false
+		}
+		return true
 	})
 	if err != nil {
+		if skippedForChoiceCount && errors.Is(err, ierr.ErrDataNotExists) {
+			return nil, unsupportedChatChoicesError()
+		}
 		log.Error("[OpenAIUseCase] Chat model resolve failed", append(logger.ErrorFields(err), zap.String("model", req.Body.Model))...)
 		return nil, proxyutil.ModelResolveError(err, enum.ProtocolKindOpenAI, req.Body.Model)
 	}

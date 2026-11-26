@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/bytedance/sonic"
+	"github.com/google/uuid"
 	"github.com/samber/lo"
 
 	proxyutil "github.com/hcd233/aris-mass/internal/application/llmproxy/util"
@@ -25,6 +26,7 @@ import (
 type ResponseToChatStreamConverter struct {
 	exposedModel string
 	chunkID      string
+	created      int64
 
 	toolCallIDs   map[int]string
 	itemIndexes   map[string]int
@@ -39,7 +41,8 @@ type ResponseToChatStreamConverter struct {
 func NewResponseToChatStreamConverter(exposedModel string) *ResponseToChatStreamConverter {
 	return &ResponseToChatStreamConverter{
 		exposedModel: exposedModel,
-		chunkID:      fmt.Sprintf(constant.OpenAIChunkIDTemplate, constant.ConvertedChunkIDSuffix),
+		chunkID:      fmt.Sprintf(constant.OpenAIChunkIDTemplate, uuid.NewString()),
+		created:      time.Now().Unix(),
 		toolCallIDs:  make(map[int]string),
 		itemIndexes:  make(map[string]int),
 	}
@@ -70,6 +73,12 @@ func (c *ResponseToChatStreamConverter) HandleEvent(event string, data []byte) (
 		enum.ResponseStreamEventIncomplete,
 		enum.ResponseStreamEventFailed:
 		return c.handleTerminalEvent(event, data)
+	case enum.ResponseStreamEventError:
+		var upstreamError dto.ResponseErrorBody
+		if err := sonic.Unmarshal(data, &upstreamError); err != nil {
+			return nil, ierr.Wrap(ierr.ErrSSEParse, err, "unmarshal response error event")
+		}
+		c.finalResponse = &dto.OpenAICreateResponseRsp{Status: enum.ResponseStatusFailed, Error: &upstreamError}
 	}
 	return nil, nil
 }
@@ -83,7 +92,7 @@ func (c *ResponseToChatStreamConverter) newChunk() *dto.OpenAIChatCompletionChun
 	return &dto.OpenAIChatCompletionChunk{
 		ID:      c.chunkID,
 		Object:  enum.CompletionObjectChatCompletionChunk,
-		Created: time.Now().Unix(),
+		Created: c.created,
 		Model:   c.exposedModel,
 		Choices: []*dto.OpenAIChatCompletionChunkChoice{{Index: 0, Delta: &dto.OpenAIChatCompletionChunkDelta{}}},
 	}
@@ -214,19 +223,31 @@ func (c *ResponseToChatStreamConverter) handleTerminalEvent(event string, data [
 		return nil, ierr.Wrap(ierr.ErrSSEParse, err, "unmarshal response terminal event")
 	}
 	rsp := ev.Response
-	if rsp != nil && len(rsp.Output) == 0 && len(c.accumulatedOutput) > 0 {
+	if rsp == nil {
+		return nil, ierr.New(ierr.ErrSSEParse, "response terminal event missing response")
+	}
+	if len(rsp.Output) == 0 && len(c.accumulatedOutput) > 0 {
 		rsp.Output = c.accumulatedOutput
 	}
 	c.finalResponse = rsp
-	if event == enum.ResponseStreamEventFailed || rsp == nil {
+	if event == enum.ResponseStreamEventFailed {
+		rsp.Status = enum.ResponseStatusFailed
+	}
+	if rsp.Status == enum.ResponseStatusFailed {
 		return nil, nil
 	}
 
 	chunk := c.newChunk()
 	finishReason := c.finishReason(event, rsp)
 	chunk.Choices[0].FinishReason = lo.ToPtr(finishReason)
-	chunk.Usage = responseUsageToChat(rsp.Usage)
-	return []*dto.OpenAIChatCompletionChunk{chunk}, nil
+	usage := responseUsageToChat(rsp.Usage)
+	if usage == nil {
+		return []*dto.OpenAIChatCompletionChunk{chunk}, nil
+	}
+	usageChunk := *chunk
+	usageChunk.Choices = []*dto.OpenAIChatCompletionChunkChoice{}
+	usageChunk.Usage = usage
+	return []*dto.OpenAIChatCompletionChunk{chunk, &usageChunk}, nil
 }
 
 func (c *ResponseToChatStreamConverter) finishReason(event string, rsp *dto.OpenAICreateResponseRsp) enum.FinishReason {

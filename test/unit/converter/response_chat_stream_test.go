@@ -50,6 +50,21 @@ func TestResponseToChatStream_TextAndReasoning(t *testing.T) {
 	if chunks[0].Model != "alias" || chunks[0].Object != enum.CompletionObjectChatCompletionChunk {
 		t.Fatalf("chunk meta = %+v", chunks[0])
 	}
+	for _, chunk := range chunks[1:] {
+		if chunk.ID != chunks[0].ID || chunk.Created != chunks[0].Created {
+			t.Fatalf("chunk meta changed within a response: %+v", chunk)
+		}
+	}
+}
+
+func TestResponseToChatStream_ResponsesHaveDistinctIDs(t *testing.T) {
+	t.Parallel()
+	events := [][2]string{{enum.ResponseStreamEventOutputTextDelta, `{"item_id":"msg_1","delta":"ok"}`}}
+	first := feedEvents(t, converter.NewResponseToChatStreamConverter("alias"), events)[0]
+	second := feedEvents(t, converter.NewResponseToChatStreamConverter("alias"), events)[0]
+	if first.ID == "" || second.ID == "" || first.ID == second.ID {
+		t.Fatalf("completion IDs = %q, %q, want distinct nonempty IDs", first.ID, second.ID)
+	}
 }
 
 func TestResponseToChatStream_ParallelFunctionCalls(t *testing.T) {
@@ -62,8 +77,8 @@ func TestResponseToChatStream_ParallelFunctionCalls(t *testing.T) {
 		{enum.ResponseStreamEventFunctionCallArgumentsDelta, `{"item_id":"fc_1","delta":"A"}`},
 		{enum.ResponseStreamEventCompleted, `{"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15,"input_tokens_details":{"cached_tokens":3},"output_tokens_details":{"reasoning_tokens":4}}}}`},
 	})
-	if len(chunks) != 5 {
-		t.Fatalf("chunks = %d, want 5", len(chunks))
+	if len(chunks) != 6 {
+		t.Fatalf("chunks = %d, want 6", len(chunks))
 	}
 	first := chunks[0].Choices[0].Delta.ToolCalls[0]
 	second := chunks[1].Choices[0].Delta.ToolCalls[0]
@@ -86,7 +101,11 @@ func TestResponseToChatStream_ParallelFunctionCalls(t *testing.T) {
 	if lo.FromPtr(final.Choices[0].FinishReason) != enum.FinishReasonToolCalls {
 		t.Fatalf("finish_reason = %v, want tool_calls", final.Choices[0].FinishReason)
 	}
-	usage := final.Usage
+	usageChunk := chunks[5]
+	if final.Usage != nil || usageChunk.Choices == nil || len(usageChunk.Choices) != 0 {
+		t.Fatalf("want usage in a separate chunk with empty choices: %+v, %+v", final, usageChunk)
+	}
+	usage := usageChunk.Usage
 	if usage == nil || usage.PromptTokens != 10 || usage.CompletionTokens != 5 || usage.TotalTokens != 15 {
 		t.Fatalf("usage = %+v", usage)
 	}
@@ -104,7 +123,7 @@ func TestResponseToChatStream_CompletedWithoutToolsFinishStop(t *testing.T) {
 	chunks := feedEvents(t, c, [][2]string{
 		{enum.ResponseStreamEventCompleted, `{"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`},
 	})
-	if len(chunks) != 1 || lo.FromPtr(chunks[0].Choices[0].FinishReason) != enum.FinishReasonStop {
+	if len(chunks) != 2 || lo.FromPtr(chunks[0].Choices[0].FinishReason) != enum.FinishReasonStop {
 		t.Fatalf("chunks = %+v, want finish_reason stop", chunks)
 	}
 }
