@@ -88,7 +88,7 @@ _Avoid_: endpoint retry, failover retry
 _Avoid_: sticky routing, session affinity
 
 **Cross-Protocol Conversion（跨协议转换）**:
-网关的核心能力：客户端使用 OpenAI 协议，网关可将其转换为 Anthropic 协议再转发，反之亦然。覆盖 7 条转发路径（OpenAI Chat native、Chat→Anthropic、Response native、Response→Chat、Response→Anthropic、Anthropic Message native、Message→Chat）。
+网关的核心能力：客户端使用 OpenAI 协议，网关可将其转换为 Anthropic 协议再转发，反之亦然。覆盖 8 条转发路径（OpenAI Chat native、Chat→Anthropic、Chat→Response、Response native、Response→Chat、Response→Anthropic、Anthropic Message native、Message→Chat）。Chat→Response 以 `CompatRouteViaOpenAIResponse` 兜底（native → viaAnthropic → viaResponse），上游统一走 SSE：请求侧 system/developer 合并为 `instructions`、assistant 历史丢弃 reasoning、tool 消息转 `function_call_output`（call_id 保留），响应侧 Responses 事件流转 Chat chunk（并行 tool_call 按 item_id 分配 index）；客户端非流式由 ChatCompletionStreamAggregator 聚合成完整响应（`object` 归一化为 `chat.completion`），审计记 `upstream_protocol=openai-response`。
 _Avoid_: protocol translation, api bridge
 
 **ModelCapabilities（模型能力）**:
@@ -128,7 +128,7 @@ _Avoid_: price import, auto pricing, autofill
 _Avoid_: config health, incomplete model
 
 **EndpointAuthType（端点认证类型）**:
-`api_key`（默认，存量全部）与 `oauth_anthropic` / `oauth_openai`（订阅账号）。订阅端点的连接字段（baseURL/能力标记）是服务端固定值，Update 路径不可修改（`oauth endpoint connection fields are immutable`）；凭据为 **OAuthCredential**。订阅端点的协议入口受能力矩阵约束：oauth_anthropic 支持 Messages 原生与 Chat/Response 跨协议转换，oauth_openai 仅接受 Responses 协议且必须 `stream=true`（非流式请求经候选过滤回落到 api_key 端点，Codex CLI/IDE 均为 Responses 流式）。
+`api_key`（默认，存量全部）与 `oauth_anthropic` / `oauth_openai`（订阅账号）。订阅端点的连接字段（baseURL/能力标记）是服务端固定值，Update 路径不可修改（`oauth endpoint connection fields are immutable`）；凭据为 **OAuthCredential**。订阅端点的协议入口受能力矩阵约束：oauth_anthropic 支持 Messages 原生与 Chat/Response 跨协议转换，oauth_openai 支持 Responses 原生（必须 `stream=true`，非流式请求经候选过滤回落到 api_key 端点，Codex CLI/IDE 均为 Responses 流式）与 Chat→Response 跨协议转换（Chat 客户端流式/非流式均可，非流式由网关聚合上游 SSE）。
 _Avoid_: auth mode, credential type
 
 **OAuthCredential（订阅账号凭据）**:

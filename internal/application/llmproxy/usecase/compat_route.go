@@ -17,6 +17,10 @@ func SelectCompatRoute(requestAPI enum.ProxyAPI, ep *aggregate.Endpoint) enum.Co
 		if ep.SupportAnthropicMessage() {
 			return enum.CompatRouteViaAnthropicMessage
 		}
+		// Responses-only 端点（如 Codex 订阅）兜底：Chat→Response 转换。
+		if ep.SupportOpenAIResponse() {
+			return enum.CompatRouteViaOpenAIResponse
+		}
 	case enum.ProxyAPIOpenAIResponse:
 		if ep.SupportOpenAIResponse() {
 			return enum.CompatRouteNative

@@ -18,4 +18,5 @@ const (
 	CompatRouteNative
 	CompatRouteViaOpenAIChat
 	CompatRouteViaAnthropicMessage
+	CompatRouteViaOpenAIResponse
 )

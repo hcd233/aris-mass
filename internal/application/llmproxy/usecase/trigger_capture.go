@@ -231,6 +231,8 @@ func openAIChatRouteUpstreamProtocol(compatRoute enum.CompatRoute) enum.Protocol
 	switch compatRoute {
 	case enum.CompatRouteViaAnthropicMessage:
 		return enum.ProtocolAnthropicMessage
+	case enum.CompatRouteViaOpenAIResponse:
+		return enum.ProtocolOpenAIResponse
 	default:
 		return enum.ProtocolOpenAIChatCompletion
 	}
