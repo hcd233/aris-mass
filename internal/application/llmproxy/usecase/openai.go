@@ -235,6 +235,8 @@ func (u *openAIUseCase) dispatchChat(ctx context.Context, req *dto.OpenAIChatCom
 		return u.forwardChatNative(ctx, req, m, ep, upstream, stream)
 	case enum.CompatRouteViaAnthropicMessage:
 		return u.forwardChatViaAnthropic(ctx, req, m, ep, req.Body.Model)
+	case enum.CompatRouteViaOpenAIResponse:
+		return u.forwardChatViaResponse(ctx, req, m, ep)
 	default:
 		return nil, proxyutil.SendOpenAIModelNotFoundError(req.Body.Model)
 	}

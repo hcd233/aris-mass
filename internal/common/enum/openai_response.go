@@ -93,6 +93,8 @@ type ResponseIncompleteReason = string
 const (
 	// ResponseIncompleteReasonContentFilter 内容被内容过滤器拦截
 	ResponseIncompleteReasonContentFilter ResponseIncompleteReason = "content_filter"
+	// ResponseIncompleteReasonMaxOutputTokens 达到最大输出 token 数
+	ResponseIncompleteReasonMaxOutputTokens ResponseIncompleteReason = "max_output_tokens"
 )
 
 // ResponseComputerActionType ComputerCall 动作类型
@@ -391,6 +393,8 @@ const (
 	ResponseStreamEventOutputTextDone ResponseStreamEventType = "response.output_text.done"
 	// ResponseStreamEventReasoningTextDelta 推理文本增量
 	ResponseStreamEventReasoningTextDelta ResponseStreamEventType = "response.reasoning_text.delta"
+	// ResponseStreamEventReasoningSummaryTextDelta 推理摘要文本增量
+	ResponseStreamEventReasoningSummaryTextDelta ResponseStreamEventType = "response.reasoning_summary_text.delta"
 	// ResponseStreamEventFunctionCallArgumentsDelta 函数调用参数增量
 	ResponseStreamEventFunctionCallArgumentsDelta ResponseStreamEventType = "response.function_call_arguments.delta"
 	// ResponseStreamEventCustomToolCallInputDelta 自定义工具调用输入增量

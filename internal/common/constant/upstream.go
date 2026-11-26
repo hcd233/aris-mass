@@ -16,6 +16,8 @@ const (
 	ConvertedChunkIDSuffix     = "converted"
 	ResponseIDTemplate         = "resp_%s"
 	ResponseItemIDTemplate     = "msg_%s"
+	// ResponseInstructionsJoinSeparator Chat→Response 转换时多条 system/developer 文本的连接符
+	ResponseInstructionsJoinSeparator = "\n\n"
 
 	// Mock 上游（压测用）：upstream_model 为 MockUpstreamModel 时，网关不向上游
 	// 发 HTTP，改由 transport.IsMock 命中的装饰器进程内随机流生成。

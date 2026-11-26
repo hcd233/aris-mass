@@ -522,12 +522,19 @@ func responseToolChoiceToChat(tc *dto.ResponseToolChoiceParam) *dto.OpenAIChatCo
 }
 
 func chatMessageToResponseOutputs(msg *dto.OpenAIChatCompletionMessageParam, toolTypeMap, namespaceMap map[string]string) []*dto.ResponseInputItem {
+	return chatMessageToResponseItems(msg, toolTypeMap, namespaceMap, true)
+}
+
+// chatMessageToResponseItems 将 Chat assistant 消息展开为 Responses items。
+// includeReasoning=false 用于请求历史方向（Chat→Response）：与 Response→Chat
+// 丢弃 reasoning item 对称，不回放无法续链的推理摘要。
+func chatMessageToResponseItems(msg *dto.OpenAIChatCompletionMessageParam, toolTypeMap, namespaceMap map[string]string, includeReasoning bool) []*dto.ResponseInputItem {
 	if msg == nil {
 		return nil
 	}
 	var items []*dto.ResponseInputItem
 
-	if msg.ReasoningContent != nil && *msg.ReasoningContent != "" {
+	if includeReasoning && msg.ReasoningContent != nil && *msg.ReasoningContent != "" {
 		items = append(items, &dto.ResponseInputItem{
 			Type: lo.ToPtr(enum.ResponseInputItemTypeReasoning),
 			Summary: &[]*dto.ResponseReasoningSummary{{
