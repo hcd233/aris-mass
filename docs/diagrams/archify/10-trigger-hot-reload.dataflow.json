@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Trigger Word Hot Reload",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "animation": "trace",
+    "viewBox": [1068, 560]
+  },
+  "stages": [
+    { "label": "Change Entry" },
+    { "label": "Signal & Storage" },
+    { "label": "Pod Sync" },
+    { "label": "Memory Match" },
+    { "label": "Hits & Write-back" }
+  ],
+  "nodes": [
+    { "id": "admin", "stage": 0, "row": 0, "type": "frontend", "label": "Admin", "sublabel": "create · update · delete" },
+    { "id": "words-db", "stage": 1, "row": 1, "type": "database", "label": "Word DB", "sublabel": "deny / omit / capture" },
+    { "id": "signal-db", "stage": 1, "row": 0, "type": "database", "label": "Signal Redis", "sublabel": "Publish + INCR version" },
+    { "id": "svc", "stage": 2, "row": 0, "type": "backend", "label": "TriggerService", "sublabel": "sub · 2s · 5m sweep", "tag": "Triple sync" },
+    { "id": "matcher", "stage": 3, "row": 0, "type": "backend", "label": "AC Matcher", "sublabel": "Deny / Omit / Capture IDs", "width": 160, "tag": "Full rebuild" },
+    { "id": "llm-use", "stage": 3, "row": 1, "type": "external", "label": "LLM Request Path", "sublabel": "TriggerChecker.Check" },
+    { "id": "hit-cache", "stage": 4, "row": 0, "type": "database", "label": "Hit Cache", "sublabel": "TriggerHitCache" },
+    { "id": "hitsync", "stage": 4, "row": 1, "type": "backend", "label": "HitSync Cron", "sublabel": "5min · BatchIncr" }
+  ],
+  "flows": [
+    { "from": "admin", "to": "signal-db", "label": "NotifyChanged" },
+    { "from": "signal-db", "to": "svc", "label": "Triple sync" },
+    { "from": "svc", "to": "matcher", "label": "Full rebuild" },
+    { "from": "llm-use", "to": "matcher", "label": "Check" },
+    { "from": "matcher", "to": "hit-cache", "label": "IncrementHits" },
+    { "from": "hit-cache", "to": "hitsync", "label": "PopAll 5min", "labelAt": [960, 214] },
+    { "from": "hitsync", "to": "words-db", "label": "Write hit_count", "toSide": "bottom", "via": [[880, 271], [880, 470], [315, 470]], "labelAt": [610, 458] }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Change Broadcast", "items": ["Admin writes trigger_words (word · deny/omit/capture), then calls NotifyChanged", "Redis Publish(trigger:changed) gives an immediate signal; INCR(trigger:version) broadcasts the version", "Every Pod uses triple sync: pub/sub immediately · version polling every 2s · five-minute fallback scan"] },
+    { "dot": "emerald", "title": "Matching & Actions", "items": ["ListAll rebuilds the full Aho-Corasick matcher; an RWMutex protects the in-memory index", "deny returns the protocol-native content_filter / refusal; omit forwards but skips session storage", "capture applies only to the last user prompt, saves prior context and avoids upstream; priority deny > capture > omit"] },
+    { "dot": "rose", "title": "Hit Write-back", "items": ["Hits increment Redis TriggerHitCache immediately without blocking the request path", "TriggerHitSync runs every 5min with PopAll → BatchIncrementHitCount to update word hit_count"] }
+  ]
+}

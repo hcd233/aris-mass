@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Permissions, Ownership & Demo Governance",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "animation": "trace",
+    "repository": {
+      "url": "https://github.com/hcd233/aris-mass",
+      "revision": "e5fb3cc437465f373c2a87d0945be63f7716ded2"
+    },
+    "viewBox": [1260, 640],
+    "views": [
+      { "id": "login", "label": "Permissions & Login", "focus": ["login", "demo-api", "cmd", "webfe"], "note": "Four permission levels enter the restricted Demo login chain; UI and API enforce a read-only experience." },
+      { "id": "defense", "label": "Authorization & Views", "focus": ["webfe", "defense", "session-view", "masked"], "note": "Resource ownership and module allowlists are checked before selecting whitelisted or fully masked views." },
+      { "id": "govern", "label": "Admin Governance", "focus": ["demo-sessions", "admin-ui", "audit-db"], "note": "Admins manage users, public endpoints, Demo settings and session allowlists, and inspect access audits." }
+    ]
+  },
+  "components": [
+    { "id": "login", "type": "security", "label": "Four Permission Levels", "sublabel": "pending < demo < user < admin", "tag": "Writes ≥ user", "pos": [40, 40], "size": [220, 88] },
+    { "id": "demo-api", "type": "backend", "label": "Public Demo Login", "sublabel": "POST /demo/login · IP 5s/8", "tag": "No JWT", "pos": [340, 40], "size": [240, 88] },
+    { "id": "cmd", "type": "backend", "label": "DemoLogin Command", "sublabel": "Check login_enabled · issue access+refresh", "pos": [660, 40], "size": [260, 88] },
+    { "id": "webfe", "type": "frontend", "label": "Demo-aware Web", "sublabel": "PermissionGuard · nav & actions", "pos": [1000, 40], "size": [220, 88] },
+    { "id": "session-view", "type": "security", "label": "Tenant & Owner Isolation", "sublabel": "UserID / APIKeyID · empty denies", "tag": "Owner is not name", "pos": [100, 260], "size": [280, 104], "sources": [{ "path": "internal/application/dataset/query/dataset_query.go" }] },
+    { "id": "defense", "type": "security", "label": "Demo Access Defense", "sublabel": "Allowlist fail-closed · IP 5s/30", "tag": "Zero cost off-demo", "pos": [460, 260], "size": [240, 104], "sources": [{ "path": "internal/middleware/permission.go" }] },
+    { "id": "masked", "type": "backend", "label": "Full Demo Masking", "sublabel": "audit/models/endpoints · keep numbers/aliases", "tag": "MaskIdentity ***", "pos": [780, 260], "size": [280, 104] },
+    { "id": "demo-sessions", "type": "database", "label": "demo_sessions", "sublabel": "session_id uniqueIndex · selection grants", "pos": [100, 480], "size": [280, 88] },
+    { "id": "audit-db", "type": "database", "label": "demo_access_audits", "sublabel": "Login/module access · path·IP·UA", "pos": [460, 480], "size": [240, 88] },
+    { "id": "admin-ui", "type": "frontend", "label": "Admin Governance", "sublabel": "Approvals · public endpoints · Demo config", "pos": [780, 480], "size": [280, 88] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Login Chain", "wraps": ["login", "demo-api", "cmd", "webfe"], "pad": 10 },
+    { "kind": "region", "label": "Access Defense & Views", "wraps": ["session-view", "defense", "masked"], "pad": 10 },
+    { "kind": "region", "label": "Storage & Governance", "wraps": ["demo-sessions", "audit-db", "admin-ui"], "pad": 10 }
+  ],
+  "connections": [
+    { "id": "l1", "from": "login", "to": "demo-api", "label": "Demo entry", "fromSide": "right", "toSide": "left" },
+    { "id": "l2", "from": "demo-api", "to": "cmd", "label": "Login check", "fromSide": "right", "toSide": "left" },
+    { "id": "l3", "from": "cmd", "to": "webfe", "label": "Issue JWT", "fromSide": "right", "toSide": "left" },
+    { "id": "l4", "from": "webfe", "to": "defense", "label": "Demo read requests", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "labelAt": [600, 200] },
+    { "id": "d1", "from": "defense", "to": "session-view", "label": "SESSIONS", "fromSide": "left", "toSide": "right" },
+    { "id": "d2", "from": "defense", "to": "masked", "label": "Full masking", "fromSide": "right", "toSide": "left" },
+    { "id": "d3", "from": "defense", "to": "audit-db", "label": "Record path/IP/UA", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelAt": [580, 432] },
+    { "id": "g1", "from": "session-view", "to": "demo-sessions", "label": "AllowedIDs", "fromSide": "bottom", "toSide": "top", "labelAt": [240, 415] },
+    { "id": "g2", "from": "admin-ui", "to": "demo-sessions", "label": "Bulk add/remove", "variant": "dashed", "fromSide": "bottom", "toSide": "bottom", "via": [[920, 616], [240, 616]], "labelAt": [580, 604] }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Permissions & Ownership", "items": ["pending < demo < user < admin; writes need user or above", "Empty ID sets return no rows, never all rows", "Only admins manage public endpoints"] },
+    { "dot": "emerald", "title": "Demo Entry & Defenses", "items": ["Public login checks login_enabled and IP 5s/8", "Allowlist fails closed; demoAccess 5s/30 → 429", "Non-Demo requests skip limits; access is audited"] },
+    { "dot": "rose", "title": "Dual Views & Admin Governance", "items": ["Allowlist: ListSessionsByIDs + IsAllowed; hide others", "Full masking: MaskIdentity→***, MaskSecret keeps ends", "Admins manage approvals, endpoints and Demo config"] }
+  ]
+}

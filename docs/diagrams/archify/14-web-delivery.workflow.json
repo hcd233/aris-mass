@@ -1,0 +1,35 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Frontend Build & Embedded Delivery",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "animation": "trace"
+  },
+  "lanes": [
+    { "id": "build", "label": "1 Build" },
+    { "id": "ship", "label": "2 Embed & Ship" }
+  ],
+  "mainPath": ["source", "next-build", "web-build", "dist", "go-build", "serve"],
+  "nodes": [
+    { "id": "source", "lane": "build", "col": 0, "type": "frontend", "label": "web/ Source", "sublabel": "src/app · lib · hooks · locales", "width": 156 },
+    { "id": "next-build", "lane": "build", "col": 1, "type": "backend", "label": "next build", "sublabel": "output:export · /web base", "width": 156 },
+    { "id": "web-build", "lane": "build", "col": 2, "type": "backend", "label": "make web-build", "sublabel": "cp → dist · gzip -9", "width": 136 },
+    { "id": "dist", "lane": "ship", "col": 3, "type": "database", "label": "internal/web/dist", "sublabel": "embed.FS · .gz fallback", "width": 150 },
+    { "id": "go-build", "lane": "ship", "col": 4, "type": "backend", "label": "go build", "sublabel": "trimpath · distroless", "tag": "Frontend in binary", "width": 148 },
+    { "id": "serve", "lane": "ship", "col": 5, "type": "backend", "label": "/web/* Routes", "sublabel": "gzip negotiate · SPA fallback", "width": 156 }
+  ],
+  "edges": [
+    { "from": "source", "to": "next-build", "label": "npm ci" },
+    { "from": "next-build", "to": "web-build", "label": "web/out/" },
+    { "from": "web-build", "to": "dist", "label": "Copy · precompress", "variant": "emphasis" },
+    { "from": "dist", "to": "go-build", "label": "embed" },
+    { "from": "go-build", "to": "serve", "label": "Static serving" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Build Phase", "items": ["next build exports statically to web/out/ so basePath /web matches the backend mount contract", "make web-build copies output to internal/web/dist and is a prerequisite of build-server", "find -exec gzip -9 precompresses each file; Maple Mono CN is hosted on Cloudflare R2 and stays out of the bundle and Go binary"] },
+    { "dot": "emerald", "title": "Embed & Ship", "items": ["//go:embed all:dist delivers the frontend in one binary; the final image is distroless nonroot", "readStatic prefers .gz and falls back to the original file, preventing a site-wide failure from missing gzip", "Accept-Encoding is parsed explicitly, ignoring q=0: gzip is sent directly, otherwise decompression happens on demand"] },
+    { "dot": "rose", "title": "Fallback & CI", "items": ["Missing static assets return 404 so HTML is never cached as JS/CSS", "Other page paths return index.html; /web and /web/ serve the home page directly without a 301", "The CI path filter includes web/**; web/out is cached by content hash, then gzipped, compiled and packaged"] }
+  ]
+}

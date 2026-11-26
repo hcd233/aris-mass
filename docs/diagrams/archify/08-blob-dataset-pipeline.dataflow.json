@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Image Externalization & Dataset Export",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "animation": "trace",
+    "viewBox": [1068, 560],
+    "views": [
+      { "id": "blob-write", "label": "Image Writes", "focus": ["message", "neutralize", "externalizer", "blob-state", "maintenance"], "note": "Forged references become text; valid data URIs are externalized into server-generated ImageRefs." },
+      { "id": "dataset-read", "label": "Dataset Export", "focus": ["export-request", "owner-filter", "export-query", "image-access", "consumers"], "note": "Ownership filters sessions before ShareGPT conversion and budgeted base64 image restoration." },
+      { "id": "blob-state-view", "label": "State & Reclamation", "focus": ["blob-state", "image-access", "maintenance"], "note": "The database stores state and originals; object storage holds uploaded versions under one state machine." }
+    ]
+  },
+  "stages": [
+    { "label": "Input" },
+    { "label": "Security Filter" },
+    { "label": "Transform" },
+    { "label": "State & Reads" },
+    { "label": "Output & Maintenance" }
+  ],
+  "nodes": [
+    { "id": "message", "type": "backend", "label": "UnifiedMessage", "sublabel": "Text · image · tool", "stage": 0, "row": 0, "tag": "Untrusted input" },
+    { "id": "export-request", "type": "frontend", "label": "Dataset Recipe", "sublabel": "Score · model · time", "stage": 0, "row": 2, "tag": "JWT" },
+    { "id": "neutralize", "type": "security", "label": "Reference Sanitizer", "sublabel": "NeutralizeImageRefs", "stage": 1, "row": 0, "width": 150, "tag": "Forgery guard" },
+    { "id": "owner-filter", "type": "security", "label": "Ownership Filter", "sublabel": "API Key IDs · empty denies", "stage": 1, "row": 2, "width": 150, "tag": "Tenant isolation" },
+    { "id": "externalizer", "type": "backend", "label": "Image Externalizer", "sublabel": "sha256 · ImageRef · pool", "stage": 2, "row": 0, "width": 150, "tag": "Externalizer" },
+    { "id": "export-query", "type": "backend", "label": "Session Export", "sublabel": "Cursor · rows", "stage": 2, "row": 2, "tag": "ExportStream" },
+    { "id": "blob-state", "type": "database", "label": "blobs + Object Store", "sublabel": "pending → uploaded · ≤2MB", "stage": 3, "row": 0, "width": 170, "tag": "State machine" },
+    { "id": "image-access", "type": "backend", "label": "Export & Image Reader", "sublabel": "ShareGPT · ImageReader", "stage": 3, "row": 2, "width": 170, "tag": "Exact reference" },
+    { "id": "maintenance", "type": "backend", "label": "Retry & GC", "sublabel": "Retry · GC", "stage": 4, "row": 0, "tag": "Cron" },
+    { "id": "consumers", "type": "frontend", "label": "Detail & NDJSON", "sublabel": "Preview · base64", "stage": 4, "row": 2, "width": 150, "tag": "X-Total-Sessions" }
+  ],
+  "flows": [
+    { "id": "message-neutralize", "from": "message", "to": "neutralize", "label": "Raw message", "classification": "Untrusted", "variant": "emphasis", "route": "straight", "labelDy": 53 },
+    { "id": "neutralize-externalizer", "from": "neutralize", "to": "externalizer", "label": "Valid images", "classification": "Forged refs downgraded", "variant": "security", "route": "straight", "labelDy": 53 },
+    { "id": "externalizer-blob", "from": "externalizer", "to": "blob-state", "label": "Refs + originals", "classification": "Persist before upload", "variant": "emphasis", "route": "straight", "labelDy": 53 },
+    { "id": "blob-maintenance", "from": "blob-state", "to": "maintenance", "label": "Retry / collect", "classification": "State-driven", "variant": "dashed", "route": "straight", "labelDy": 53 },
+    { "id": "request-filter", "from": "export-request", "to": "owner-filter", "label": "Export criteria", "classification": "admin all · user own", "variant": "emphasis", "route": "straight", "labelDy": 53 },
+    { "id": "filter-query", "from": "owner-filter", "to": "export-query", "label": "ExportFilter", "classification": "owner IDs", "variant": "security", "route": "straight", "labelDy": 53 },
+    { "id": "query-images", "from": "export-query", "to": "image-access", "label": "Session + image refs", "classification": "Assemble per row", "variant": "default", "route": "straight", "labelDy": 53 },
+    { "id": "blob-images", "from": "blob-state", "to": "image-access", "label": "DB / S3 bytes", "classification": "Read by state", "variant": "default", "labelDy": 24 },
+    { "id": "images-consumers", "from": "image-access", "to": "consumers", "label": "NDJSON + images", "classification": "One row per session", "variant": "emphasis", "route": "straight", "labelDy": 53 }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Writes & Reference Safety", "items": ["Client aris-blob refs downgrade to text; the server creates pending rows and ImageRefs by sha256", "The message transaction locks usable refs; failed uploads stay pending for pool and Cron retry"] },
+    { "dot": "emerald", "title": "Reads & Export", "items": ["pending reads DB bytes and uploaded uses presigned URLs; export filters by API Key ownership", "One NDJSON row per session inlines base64 images and validates completeness via X-Total-Sessions"] },
+    { "dot": "rose", "title": "State & Reclamation", "items": ["Hard-deleting messages records candidates, then recounts all-table references under lock", "Referenced blobs stay; failed object deletes retry next round without removing usable images"] }
+  ]
+}

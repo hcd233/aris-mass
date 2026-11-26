@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Async Tasks & Persistence Data Flow",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "animation": "trace",
+    "viewBox": [1068, 560],
+    "views": [
+      { "id": "session-write", "label": "Session Writes", "focus": ["call-result", "store-task", "store-pool", "session-tx", "merge", "postgres"], "note": "Message storage tasks run the session transaction in a shared pool, then merge continuations and evict cache." },
+      { "id": "audit-write", "label": "Call Audit", "focus": ["call-result", "audit-task", "store-pool", "audit-repo", "postgres"], "note": "recordModelCall submits only the final result; the audit repository persists it independently." },
+      { "id": "demo-write", "label": "Demo Audit", "focus": ["demo-event", "demo-task", "store-pool", "demo-repo", "postgres"], "note": "Demo login and module access share the bounded pool but use a separate repository and fact table." }
+    ]
+  },
+  "stages": [
+    { "label": "Event Sources" },
+    { "label": "Task Assembly" },
+    { "label": "Shared Pool" },
+    { "label": "Persistence" },
+    { "label": "Post-process & Facts" }
+  ],
+  "nodes": [
+    { "id": "call-result", "type": "backend", "label": "LLM Call Finalize", "sublabel": "JSON/SSE · detached ctx", "stage": 0, "row": 0, "tag": "CopyContextValues" },
+    { "id": "demo-event", "type": "security", "label": "Demo Access Event", "sublabel": "path · IP · UA", "stage": 0, "row": 2, "tag": "Read-only control" },
+    { "id": "store-task", "type": "messagebus", "label": "MessageStoreTask", "sublabel": "omit / Playground skip", "stage": 1, "row": 0, "width": 170, "tag": "Session snapshot" },
+    { "id": "audit-task", "type": "messagebus", "label": "ModelCallAuditTask", "sublabel": "token · latency · cost · trace", "stage": 1, "row": 1, "width": 175, "tag": "Final only" },
+    { "id": "demo-task", "type": "messagebus", "label": "DemoAccessAuditTask", "sublabel": "Login · module access", "stage": 1, "row": 2, "width": 175, "tag": "best-effort" },
+    { "id": "store-pool", "type": "messagebus", "label": "Pond storePool", "sublabel": "Bounded queue · alert on full", "stage": 2, "row": 1, "width": 180, "tag": "Async" },
+    { "id": "session-tx", "type": "backend", "label": "Session Write Transaction", "sublabel": "Sanitize · images · lock · dedupe", "stage": 3, "row": 0, "width": 180, "tag": "Atomic commit" },
+    { "id": "audit-repo", "type": "backend", "label": "AuditRepository", "sublabel": "RecordCall · cost snapshot", "stage": 3, "row": 1, "width": 170, "tag": "Call fact" },
+    { "id": "demo-repo", "type": "backend", "label": "DemoAuditRepository", "sublabel": "Login and module access", "stage": 3, "row": 2, "width": 175, "tag": "Governance fact" },
+    { "id": "merge", "type": "backend", "label": "Continuation Merge", "sublabel": "Merge + evict", "stage": 4, "row": 0, "tag": "best-effort" },
+    { "id": "postgres", "type": "database", "label": "PostgreSQL", "sublabel": "Sessions · audit", "stage": 4, "row": 1, "tag": "Source of truth" }
+  ],
+  "flows": [
+    { "id": "result-store", "from": "call-result", "to": "store-task", "label": "Session task", "variant": "emphasis", "route": "straight", "labelDy": -52 },
+    { "id": "result-audit", "from": "call-result", "to": "audit-task", "label": "Audit task", "variant": "dashed" },
+    { "id": "demo-taskify", "from": "demo-event", "to": "demo-task", "label": "Access event", "variant": "security", "route": "straight", "labelDy": 53 },
+    { "id": "store-enqueue", "from": "store-task", "to": "store-pool", "label": "Session task", "variant": "dashed" },
+    { "id": "audit-enqueue", "from": "audit-task", "to": "store-pool", "label": "Audit task", "variant": "dashed", "route": "straight", "labelDx": -70, "labelDy": 53 },
+    { "id": "demo-enqueue", "from": "demo-task", "to": "store-pool", "label": "Demo task", "variant": "dashed" },
+    { "id": "pool-session", "from": "store-pool", "to": "session-tx", "label": "Session write", "variant": "emphasis" },
+    { "id": "pool-audit", "from": "store-pool", "to": "audit-repo", "label": "Call audit", "variant": "dashed", "route": "straight", "labelDx": 70, "labelDy": 53 },
+    { "id": "pool-demo", "from": "store-pool", "to": "demo-repo", "label": "Demo audit", "variant": "dashed" },
+    { "id": "session-merge", "from": "session-tx", "to": "merge", "label": "Post-commit", "variant": "emphasis", "route": "straight", "labelDy": -52 },
+    { "id": "session-db", "from": "session-tx", "to": "postgres", "label": "Commit", "variant": "emphasis" },
+    { "id": "audit-db", "from": "audit-repo", "to": "postgres", "label": "Model call", "variant": "dashed", "route": "straight", "labelDx": -70, "labelDy": 53 },
+    { "id": "demo-db", "from": "demo-repo", "to": "postgres", "label": "Access audit", "variant": "dashed" },
+    { "id": "merge-db", "from": "merge", "to": "postgres", "label": "Keeper roll-forward", "variant": "dashed", "labelDy": 24 }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Task Boundaries", "items": ["CopyContextValues preserves trace and ownership; omit / Playground create no session task", "Attempt failures are buffered; only the final result enters ModelCallAuditTask"] },
+    { "dot": "emerald", "title": "Session Transaction & Merge", "items": ["Sanitize and externalize images; lock references; checksum + ON CONFLICT dedupe rejects zero IDs", "After commit, group by API Key + first Message, merge with FOR UPDATE and evict cache"] },
+    { "dot": "rose", "title": "Reliability & Facts", "items": ["Three task types share the bounded storePool; full queues or a stopped pool raise alerts", "Sessions, call audit and Demo audit write PostgreSQL separately; shutdown drains before pool stop"] }
+  ]
+}

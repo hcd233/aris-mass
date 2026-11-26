@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "LLM Proxy Forwarding Pipeline",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "animation": "trace",
+    "column_fit": "spread",
+    "viewBox": [1052, 570],
+    "views": [
+      { "id": "pre-check", "label": "Pre-checks", "focus": ["client", "auth", "rlim", "trigger"], "note": "API Key authentication → two-level rate limits → trigger filtering." },
+      { "id": "forward", "label": "Resolve & Forward", "focus": ["res", "transport", "upstream"], "note": "Ordered candidates are compressed and converted; Transport retries and falls back across endpoints." },
+      { "id": "finalize", "label": "Finalize & Hand Off", "focus": ["transport", "pond", "db", "client"], "note": "Responses return synchronously; storage and audit move to asynchronous tasks." }
+    ]
+  },
+  "participants": [
+    { "id": "client", "type": "external", "label": "Client", "sublabel": "Codex etc." },
+    { "id": "auth", "type": "security", "label": "API Key", "sublabel": "Authenticate" },
+    { "id": "rlim", "type": "security", "label": "Rate Limit", "sublabel": "Request + token" },
+    { "id": "trigger", "type": "security", "label": "Trigger", "sublabel": "Aho-Corasick" },
+    { "id": "res", "type": "backend", "label": "Resolver", "sublabel": "Route · compress" },
+    { "id": "transport", "type": "backend", "label": "Transport", "sublabel": "Retry · Guard" },
+    { "id": "upstream", "type": "cloud", "label": "MaaS", "sublabel": "API Key · OAuth" },
+    { "id": "pond", "type": "messagebus", "label": "Pond", "sublabel": "Async handoff" },
+    { "id": "db", "type": "database", "label": "PostgreSQL", "sublabel": "Session · audit" }
+  ],
+  "segments": [
+    { "from": 160, "to": 276, "label": "Pre-checks" },
+    { "from": 288, "to": 382, "label": "Resolve · Forward" },
+    { "from": 390, "to": 490, "label": "Finalize · Persist" }
+  ],
+  "messages": [
+    { "from": "client", "to": "auth", "y": 180, "label": "Proxy request · X-API-Key", "variant": "emphasis" },
+    { "from": "auth", "to": "rlim", "y": 208, "label": "Authenticated · inject identity", "variant": "security" },
+    { "from": "rlim", "to": "trigger", "y": 236, "label": "Within limits · read-only peek", "variant": "security" },
+    { "from": "trigger", "to": "res", "y": 264, "label": "Allow · deny/capture may short-circuit", "variant": "security" },
+    { "from": "res", "to": "transport", "y": 320, "label": "Ordered candidates · compress · convert" },
+    { "from": "transport", "to": "upstream", "y": 348, "label": "Guard → same-endpoint retry → HTTP / SSE", "variant": "emphasis" },
+    { "from": "upstream", "to": "transport", "y": 376, "label": "Response stream · cross-endpoint fallback on failure", "variant": "return" },
+    { "from": "transport", "to": "pond", "y": 424, "label": "StoreTask + recordModelCall", "variant": "dashed" },
+    { "from": "pond", "to": "db", "y": 452, "label": "Session snapshot + audit + estimated cost", "variant": "dashed" },
+    { "from": "transport", "to": "client", "y": 480, "label": "Synchronous JSON / SSE response", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "auth", "from": 174, "to": 214, "type": "security" },
+    { "participant": "rlim", "from": 202, "to": 242, "type": "security" },
+    { "participant": "trigger", "from": 230, "to": 270, "type": "security" },
+    { "participant": "res", "from": 258, "to": 326, "type": "backend" },
+    { "participant": "transport", "from": 314, "to": 486, "type": "backend" },
+    { "participant": "upstream", "from": 342, "to": 382, "type": "cloud" },
+    { "participant": "pond", "from": 418, "to": 458, "type": "messagebus" },
+    { "participant": "db", "from": 446, "to": 458, "type": "database" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Pre-checks", "items": ["API Key injects UserID / APIKeyID / Permission; request and token buckets apply", "deny rejects natively; capture preserves prior context; omit skips session storage only"] },
+    { "dot": "amber", "title": "Routing & Conversion", "items": ["Tenant / public / shared pools, priority + A-Res + five-minute affinity", "7 conversion paths + native Decision; DTO compression, then cross-endpoint fallback"] },
+    { "dot": "emerald", "title": "Sync Response & Async Handoff", "items": ["Endpoints can switch only before streaming starts; delivered SSE never falls back", "recordModelCall captures usage, latency, final state and cost; Pond runs tasks asynchronously"] }
+  ]
+}

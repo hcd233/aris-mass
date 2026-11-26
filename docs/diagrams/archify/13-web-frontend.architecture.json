@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Web Admin Frontend Architecture",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "animation": "trace",
+    "repository": {
+      "url": "https://github.com/hcd233/aris-mass",
+      "revision": "e5fb3cc437465f373c2a87d0945be63f7716ded2"
+    },
+    "viewBox": [1140, 560],
+    "views": [
+      { "id": "shell", "label": "Entry & Routing", "focus": ["layout", "routes"], "note": "The root layout owns providers, first paint and client persistence; App Router renders 15 admin and 4 public pages." },
+      { "id": "api", "label": "Components & Data", "focus": ["comp", "lib", "api"], "note": "Components reuse shared hooks and all backend requests converge in src/lib." }
+    ]
+  },
+  "components": [
+    { "id": "layout", "type": "frontend", "label": "Browser + app/layout.tsx", "sublabel": "I18n → Theme → Auth · first-paint theme/motion · localStorage", "tag": "Static export", "pos": [40, 30], "size": [1060, 88], "sources": [{ "path": "web/src/app/layout.tsx", "label": "App Router" }] },
+    { "id": "routes", "type": "frontend", "label": "App Router Groups", "sublabel": "15 dashboard pages · 4 public pages · PermissionGuard", "tag": "15 + 4", "pos": [40, 160], "size": [1060, 88] },
+    { "id": "comp", "type": "frontend", "label": "components + hooks", "sublabel": "ui · charts · chat · dataset · playground · motion · hooks 12", "tag": "Composable", "pos": [40, 290], "size": [1060, 88] },
+    { "id": "lib", "type": "frontend", "label": "src/lib · Sole Backend Gateway", "sublabel": "Bearer · single-flight 401 refresh · error toast · NDJSON", "tag": "api.*", "pos": [40, 430], "size": [650, 96], "sources": [{ "path": "web/src/lib/api-client.ts" }] },
+    { "id": "api", "type": "backend", "label": "REST / SSE / NDJSON", "sublabel": "/api/web/v1 JWT · Playground SSE · Dataset NDJSON", "tag": "aris-mass", "pos": [760, 430], "size": [340, 96] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "web/src · Next.js 16 static export", "wraps": ["layout", "routes", "comp", "lib"], "pad": 10 },
+    { "kind": "region", "label": "SERVER", "wraps": ["api"], "pad": 10 }
+  ],
+  "connections": [
+    { "id": "route-render", "from": "layout", "to": "routes", "label": "App Router", "fromSide": "bottom", "toSide": "top", "labelDy": 24 },
+    { "id": "route-components", "from": "routes", "to": "comp", "label": "Compose pages", "fromSide": "bottom", "toSide": "top", "labelDy": 24 },
+    { "id": "c-lib", "from": "comp", "to": "lib", "label": "Call api.*", "fromSide": "bottom", "toSide": "top" },
+    { "id": "req", "from": "lib", "to": "api", "label": "HTTP", "variant": "emphasis", "fromSide": "right", "toSide": "left" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Static Export & First Paint", "items": ["output: export · basePath /web; theme and Motion Tier resolve before first paint", "localStorage stores tokens, locale, theme, filters and local Playground sessions"] },
+    { "dot": "emerald", "title": "Routes & Components", "items": ["15 dashboard pages are permission-trimmed; portal, login, callback and share are public", "Reuse shadcn/Base UI, charts, chat, dataset, playground, motion and 12 hooks"] },
+    { "dot": "rose", "title": "Data Path", "items": ["api-client centralizes Bearer, 401 refresh, error toast and X-Trace-Id", "Playground uses SSE; Dataset uses NDJSON and validates completeness via X-Total-Sessions"] }
+  ]
+}

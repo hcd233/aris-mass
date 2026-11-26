@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Upstream Routing & Resilience",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "animation": "trace",
+    "repository": {
+      "url": "https://github.com/hcd233/aris-mass",
+      "revision": "e5fb3cc437465f373c2a87d0945be63f7716ded2"
+    },
+    "viewBox": [1360, 640],
+    "views": [
+      { "id": "chain", "label": "Routing & Forwarding", "focus": ["proxy", "adapt", "guard", "retry", "upstream"], "note": "Resolver creates ordered candidates; each passes Guard, same-endpoint retries and upstream access." },
+      { "id": "defense", "label": "Two Defenses", "focus": ["breaker", "bulkhead", "degrade"], "note": "A three-state breaker and semaphore bulkhead; exhausted candidates return a protocol-specific error." },
+      { "id": "observe", "label": "Observability", "focus": ["metrics"], "note": "Breaker and bulkhead state are exported as Prometheus metrics." }
+    ]
+  },
+  "components": [
+    { "id": "proxy", "type": "backend", "label": "EndpointResolver", "sublabel": "Tenant → public → shared pool", "tag": "Protocol filter", "pos": [40, 40], "size": [260, 104], "sources": [{ "path": "internal/domain/llmproxy/service/resolver.go" }] },
+    { "id": "adapt", "type": "backend", "label": "Routing & Affinity", "sublabel": "priority · A-Res · 5min affinity", "tag": "Ordered candidates", "pos": [380, 40], "size": [260, 104] },
+    { "id": "guard", "type": "security", "label": "EndpointGuard", "sublabel": "Stable key · Allow → Lease → Report", "tag": "Covers SSE body", "pos": [720, 40], "size": [260, 104], "sources": [{ "path": "internal/infrastructure/transport/guard.go" }] },
+    { "id": "retry", "type": "backend", "label": "UpstreamRetry", "sublabel": "Backoff + jitter · max 6 attempts", "pos": [1060, 40], "size": [260, 104] },
+    { "id": "upstream", "type": "external", "label": "MaaS / OAuth Upstream", "sublabel": "HTTP/SSE · 429 excluded · stream errors count", "pos": [1060, 190], "size": [260, 88] },
+    { "id": "degrade", "type": "backend", "label": "Fallback & Degradation", "sublabel": "Next candidate · final protocol error", "tag": "503 + Retry-After", "pos": [40, 240], "size": [240, 104] },
+    { "id": "breaker", "type": "security", "label": "Three-state Breaker", "sublabel": "60s · min 10 · ≥50% · half-open 30s", "tag": "Resilience", "pos": [360, 240], "size": [280, 124], "sources": [{ "path": "internal/common/resilience/circuit_breaker.go" }] },
+    { "id": "bulkhead", "type": "security", "label": "Semaphore Bulkhead", "sublabel": "Default per-key ≤32 · 1s wait timeout", "tag": "Resilience", "pos": [730, 240], "size": [240, 104] },
+    { "id": "metrics", "type": "backend", "label": "Prometheus Resilience Metrics", "sublabel": "circuit_state/open/rejected · bulkhead_rejected", "tag": "Redacted endpoint key", "pos": [360, 430], "size": [600, 88] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Forwarding Chain", "wraps": ["proxy", "adapt", "guard", "retry", "upstream"], "pad": 10 },
+    { "kind": "region", "label": "Resilience Defenses", "wraps": ["degrade", "breaker", "bulkhead"], "pad": 10 }
+  ],
+  "connections": [
+    { "id": "c1", "from": "proxy", "to": "adapt", "label": "Candidates", "fromSide": "right", "toSide": "left" },
+    { "id": "c2", "from": "adapt", "to": "guard", "label": "Stable key", "fromSide": "right", "toSide": "left" },
+    { "id": "c3", "from": "guard", "to": "retry", "label": "Allow + Lease", "fromSide": "right", "toSide": "left" },
+    { "id": "c4", "from": "retry", "to": "upstream", "fromSide": "bottom", "toSide": "top" },
+    { "id": "c5", "from": "retry", "to": "guard", "label": "Report(key, !IsCircuitError)", "variant": "dashed", "fromSide": "bottom", "toSide": "right", "via": [[1190, 178], [1010, 178], [1010, 92]], "labelAt": [1060, 164] },
+    { "id": "c6", "from": "guard", "to": "breaker", "label": "Breaker decision", "fromSide": "bottom", "toSide": "top", "labelAt": [645, 203] },
+    { "id": "c7", "from": "guard", "to": "bulkhead", "label": "Acquire concurrency", "fromSide": "bottom", "toSide": "top", "labelAt": [850, 225] },
+    { "id": "c8", "from": "breaker", "to": "degrade", "label": "Open → degrade", "fromSide": "left", "toSide": "right", "labelAt": [320, 290] },
+    { "id": "c10", "from": "breaker", "to": "metrics", "label": "Export state", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelAt": [500, 397] },
+    { "id": "c11", "from": "bulkhead", "to": "metrics", "label": "Count rejections", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelAt": [840, 387] }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Routing & Stable Identity", "items": ["Aliases resolve from owned tenant to public pool, then optional user_id=0 shared pool", "Ascending priority tiers use A-Res weighted shuffle; session or first-prompt affinity lasts 5 minutes", "Guard key is BaseURL|sha256(APIKey)[:8]; OAuth uses BaseURL|oauth:{endpointID}, never the token"] },
+    { "dot": "emerald", "title": "Retry, Fallback & Defenses", "items": ["Up to 6 attempts per endpoint with exponential backoff + jitter; connection errors / 5xx / 429 retry", "Switchable pre-stream errors try the next candidate; exhaustion returns the last error", "Default breaker: 60s window, ≥10 requests and ≥50% failures, one probe after 30s; semaphore ≤32 / 1s"] },
+    { "dot": "rose", "title": "SSE & Observability Boundaries", "items": ["Guard Lease covers the response body; slow streams hold slots and non-EOF errors count on Close", "429 can retry and fall back without tripping the breaker; delivered SSE never switches endpoints", "upstream_circuit_state / open_total / rejected_total / bulkhead_rejected_total use redacted keys"] }
+  ]
+}

@@ -9,8 +9,8 @@ Aris unifies access to multiple MaaS platforms, models, and API protocols. Throu
 ## Core Capabilities
 
 - **Model aggregation & single entry point**: two-level Endpoint/Model configuration (user-level multi-tenancy — ordinary users manage their own endpoints and models, admins can filter by user and create on their behalf); model aliases hide upstream differences, and one alias can be bound to multiple endpoints. Provides OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages compatible entry points, plus cross-protocol translation between OpenAI and Anthropic (including SSE streaming events).
-- **Data curation & governance**: model interactions are aggregated into Sessions; Messages/Tools are stored in a protocol-neutral structure and deduplicated by checksum content addressing. Supports rating, share links, session filtering, and ShareGPT JSONL streaming export — curating data assets for private-model SFT.
-- **Audit & runtime monitoring**: every call records four categories of token usage, time to first token, streaming duration, upstream status code, and Trace ID. Provides trend / success-rate / throughput / usage statistics and cron auditing, plus cross-pod runtime monitoring of QPS, P95, SSE connections, goroutines/heap/CPU.
+- **Data curation & governance**: model interactions are aggregated into Sessions; Messages/Tools are stored in a protocol-neutral structure and deduplicated by checksum content addressing. Supports rating, share links, session filtering, and ShareGPT NDJSON streaming export with image inlining — curating data assets for private-model SFT.
+- **Audit & runtime monitoring**: every call records four categories of token usage, time to first token, streaming duration, upstream status code, and Trace ID. Provides trend / success-rate / throughput / usage statistics and cron auditing, plus cross-pod runtime monitoring of QPS, CPU, memory, goroutines, and network I/O.
 - **Subscription account OAuth (Claude Code / Codex)**: subscription accounts join as a dedicated endpoint type (`oauth_anthropic` / `oauth_openai`) via official OAuth flows. Access tokens refresh automatically (request-path with a 3-minute skew, plus a maintenance cron) and credentials are stored AES-256-GCM encrypted; the breaker key uses a stable per-endpoint identity, so token rotation never resets circuit state. Model aliases bind them like any endpoint — scheduling, fallback, auditing, pricing, and data curation apply unchanged — and subscription quota windows (Claude 5h/7d, Codex primary/secondary) are probed on a cron and shown in the console.
 - **Client config export**: `aris model export` generates OpenCode, Claude Code, Codex, Pi, and DSH connection configs from the server's enabled model list — idempotent patching, `.bak` backups, atomic replacement, credential files at `0600`.
 - **Security & governance**: GitHub/Google OAuth2 login + JWT admin auth, Proxy API Key call auth, four-tier `pending`/`demo`/`user`/`admin` permissions with user approval (demo account: module whitelist + session-whitelist / full-masking dual views + one-click login + access auditing), Aho-Corasick trigger-word blocking, and Redis token-bucket request rate limiting plus token-usage limiting.
@@ -60,7 +60,7 @@ Legend: ✅ yes · ◐ partial · — no. Ratings follow each project's own READ
 
 **5 · Routing & scheduling** — Aris: priority tiers + in-tier A-Res weighted shuffle + session affinity (TTL 5 min, fail-open). new-api: weighted random, draggable priority, channel affinity, `auto` cross-group retry. LiteLLM: 5 strategies (default `simple-shuffle`) + four specialised routers + Auto Router. OmniRoute: 19 combo strategies + 16-factor scoring. sub2api: sticky sessions with per-group account selection.
 
-**6 · Circuit breaking / isolation / degradation** — Aris ✅: `Guard` outside the retry loop — `BaseURL\|APIKey` three-state breaker (60s × 6 buckets, opens at ≥10 req and ≥50% errors, 30s → half-open with 1 probe) + per-key semaphore (≤32, 1s) → 503 + `Retry-After`; 429 never trips it. new-api ◐: scheduled health probes with auto-disable/recover, no threshold breaker. LiteLLM ◐: router cooldowns only. OmniRoute ✅: provider breaker (408/5xx only, 8×/12×/2× → half-open 60/30/15s) + connection cooldown (×2 backoff, honours `Retry-After`) + per-model lockout + admission queueing. sub2api ✅: account error policy, temporary-unschedulable rules and failover.
+**6 · Circuit breaking / isolation / degradation** — Aris ✅: `Guard` outside the retry loop — a three-state breaker keyed by `BaseURL\|hash(APIKey)` or stable OAuth endpoint identity (60s window, opens at ≥10 req and ≥50% errors, 30s → half-open with 1 probe) + per-key semaphore (≤32, 1s) → 503 + `Retry-After`; 429 never trips it, while SSE body leases retain slots and report mid-stream failures. new-api ◐: scheduled health probes with auto-disable/recover, no threshold breaker. LiteLLM ◐: router cooldowns only. OmniRoute ✅: provider breaker (408/5xx only, 8×/12×/2× → half-open 60/30/15s) + connection cooldown (×2 backoff, honours `Retry-After`) + per-model lockout + admission queueing. sub2api ✅: account error policy, temporary-unschedulable rules and failover.
 
 **7 · Multi-tenancy & permissions** — OmniRoute —: single-operator, only API-key scoping, IP filtering and 33 MCP scopes. Aris: user-level multi-tenancy. new-api: users/groups/tokens with fine-grained admin permissions. LiteLLM: Organizations → Teams → Users → Virtual Keys (enterprise org/team admins). sub2api: users/groups with per-user and per-account concurrency.
 
@@ -74,7 +74,7 @@ Legend: ✅ yes · ◐ partial · — no. Ratings follow each project's own READ
 
 **12 · Conversation body persisted** — Aris ✅: every call's history lands in the Session aggregate, Messages/Tools deduplicated by checksum and stored protocol-neutrally, same-prefix snapshots merged in real time (exceptions: trigger `omit` and the Playground). new-api —: log fields are tokens/cost/latency/IDs only; the issues requesting prompt logging (#924, #2721, #2982, #4852) are all closed. LiteLLM ◐: off by default, opt in with `store_prompts_in_spend_logs`, with `turn_off_message_logging` / `no-log` for redaction.
 
-**13 · Conversation dataset export** — Aris ✅: ShareGPT JSONL streaming export (SSE with progress) preserving multi-turn context, `<think>` reasoning and tool calls, with score/model/time filters and pre-export statistics. LiteLLM ◐: Lens datasets (Export JSONL) are **evaluation**-oriented, need the separate Lens service + ClickHouse and have no ShareGPT/SFT format.
+**13 · Conversation dataset export** — Aris ✅: ShareGPT NDJSON streaming export (one session per line, `X-Total-Sessions` completeness check) preserving multi-turn context, `<think>` reasoning, tool calls and inlined images, with score/model/time filters and pre-export statistics. LiteLLM ◐: Lens datasets (Export JSONL) are **evaluation**-oriented, need the separate Lens service + ClickHouse and have no ShareGPT/SFT format.
 
 **14 · Content safety & masking** — Aris ✅: Aho-Corasick trigger words with `deny` / `omit` / `capture` actions, hot-reloaded via Redis pub/sub and version polling. LiteLLM ✅: ~50 guardrail integrations in four modes, but masking does **not** apply to streamed output and `llmguard` / `llamaguard` / `hide_secrets` / `lakera` need the enterprise licence. new-api ◐: per-channel extra settings and upstream header overrides only.
 
@@ -84,57 +84,95 @@ Legend: ✅ yes · ◐ partial · — no. Ratings follow each project's own READ
 
 **17 · MCP / A2A** — LiteLLM ✅: MCP Gateway (per-key server/tool permissions, MCP cost tracking, `/mcp` usable from Cursor) + A2A Agent Gateway. OmniRoute ✅: built-in MCP server with 110 tools (stdio/HTTP/SSE, 33 scopes) + A2A v0.3. new-api ◐: JS task plugins and a marketplace only. sub2api ◐: a `hashicorp/go-plugin` system only.
 
-**18 · Deployment & horizontal scaling** — Aris ✅: Compose/K8s with `preStop` + `terminationGracePeriodSeconds: 660` and an ordered eight-step graceful shutdown that drains SSE; cross-pod state in Redis. new-api ✅: multi-node needs a shared main DB and identical `SESSION_SECRET`/`CRYPTO_SECRET`, plus Redis for shared rate limits. LiteLLM ✅: Helm (HPA/KEDA), official AWS/GCP Terraform (no Azure), cosign-signed images, Prisma migrations, Redis required for multi-instance. OmniRoute ◐: single-node SQLite, with a remote mode driven by scoped tokens.
+**18 · Deployment & horizontal scaling** — Aris ✅: Compose/K8s with `preStop` + `terminationGracePeriodSeconds: 480` and nine Fx lifecycle hooks that drain requests, SSE and worker pools; cross-pod state in Redis. new-api ✅: multi-node needs a shared main DB and identical `SESSION_SECRET`/`CRYPTO_SECRET`, plus Redis for shared rate limits. LiteLLM ✅: Helm (HPA/KEDA), official AWS/GCP Terraform (no Azure), cosign-signed images, Prisma migrations, Redis required for multi-instance. OmniRoute ◐: single-node SQLite, with a remote mode driven by scoped tokens.
 
 **19 · Extensibility** — Aris ◐: no plugin system — extension points are models.dev import and Fx wiring. new-api ✅: JS task plugins with a documented API and marketplace, plus custom OAuth providers. LiteLLM ✅: eight `CustomLogger` hooks, guardrail APIs in any language, custom auth/SSO/secret managers, provider registration by editing one JSON, callbacks from `s3://`/`gcs://`. OmniRoute ✅: plugin framework, marketplace and skills frameworks. sub2api ✅: `hashicorp/go-plugin` and module skills.
 
 ## System Architecture
 
-The backend is organized by DDD layering: interface layer (router / ten-level middleware chain / handler / dto) → application layer (16 use-case modules with `command`/`query`/`port`) → domain layer (aggregates, value objects, repository interfaces); the infrastructure layer implements repository interfaces in reverse to achieve dependency inversion, with Cron scheduled governance and `bootstrap`/Fx wiring as cross-cutting concerns. There are two classes of callers: the Web admin console (JWT) and agentic clients (`X-API-Key`).
+The diagram set follows MECE: each diagram answers one question, while static structure, synchronous request paths, asynchronous data flows, and delivery lifecycles stay separate.
+
+| Perspective | Diagrams | Question |
+| --- | --- | --- |
+| System & access | 01–02 | What exists, and how are callers authenticated? |
+| Proxy & upstream | 03–05 | How are calls forwarded, endpoints scheduled, and subscription credentials maintained? |
+| Data assets | 06–08 | How are sessions and images modeled, persisted, and exported? |
+| Governance & observability | 09–12 | How do authorization, content safety, telemetry, and maintenance work? |
+| Delivery & lifecycle | 13–16 | How is the frontend delivered, and how does the service deploy and stop? |
+
+### System & access
+
+**01 · System overview**: the backend uses DDD layering, with 17 application modules depending on domain abstractions through `command` / `query` / `port`; infrastructure implements repository interfaces in reverse. The global middleware chain is Trace → Compress → Log → Recover → Metrics → Inflight → Guard → CORS → Locale, Fx owns 9 lifecycle hooks, and 6 Cron jobs perform maintenance. [Interactive HTML](docs/diagrams/archify/aris-arch-01.html)
 
 ![System overview · DDD layering](docs/diagrams/archify/aris-arch-01.gif)
 
-Interactive version (node search / impact tracing / light-dark themes / guided tour, nodes link to source anchors): [docs/diagrams/archify/aris-arch-01.html](docs/diagrams/archify/aris-arch-01.html)
+**02 · Access partitions & authentication**: routes are partitioned into Web / CLI / Proxy / Ops. Web `publicGroup` and `jwtGroup` are parallel, keeping OAuth2, refresh, Demo login, and public shares outside JWT middleware; CLI and LLM Proxy routes are registered separately but share `X-API-Key` authentication; Ops exposes only probes, metrics, and the install script. Authorization is covered separately in 09. [Interactive HTML](docs/diagrams/archify/aris-arch-02.html)
 
-**LLM proxy path**: auth / rate limiting / trigger words → endpoint resolution (user-level isolation) → cross-protocol translation → upstream; the response is returned synchronously, while messages and audit records are persisted asynchronously through a Pond goroutine pool so the request is never blocked.
+![Access partitions and authentication boundaries](docs/diagrams/archify/aris-arch-02.gif)
 
-![LLM proxy path](docs/diagrams/archify/aris-arch-02.gif)
+### Proxy & upstream
 
-**Upstream fault tolerance (circuit breaking / isolation / degradation)**: the proxy forwarding path plugs a fault-tolerance guard `Guard` outside the retry loop — a three-state circuit breaker keyed on `BaseURL|APIKey` (sliding window of 60s × 6 buckets; opens at ≥10 requests with an error rate ≥50%; after 30s goes half-open allowing 1 probe to recover) combined with per-key semaphore isolation (concurrency ≤32, 1s wait timeout). When the breaker is open or the semaphore is saturated it fast-fails with 503 + `Retry-After` + an error body formatted for the ingress protocol. 429 remains retryable and does not count toward tripping the breaker (rate limiting is not a fault), and already-established SSE connections are unaffected; breaker state and rejection counts are exported as Prometheus metrics (label = endpoint key).
+**03 · LLM proxy path**: API-key auth → request/token rate limits → trigger words → candidate resolution → tool-output compression and protocol conversion → Guard / retry / fallback → upstream. Seven OpenAI ↔ Anthropic conversion paths plus native Decision forwarding are supported. JSON / SSE responses return synchronously; session and audit work is only handed off at completion. [Interactive HTML](docs/diagrams/archify/aris-arch-03.html)
 
-![Upstream fault tolerance: circuit breaking / isolation / degradation](docs/diagrams/archify/aris-arch-14.gif)
+![LLM proxy path](docs/diagrams/archify/aris-arch-03.gif)
 
-**Session data model & lifecycle**: LLM forwarding writes into the Session aggregate root; Messages/Tools are deduplicated by checksum content addressing, and audit, cache, export, and background consumption revolve around it.
+**04 · Upstream scheduling & resilience**: aliases resolve through the private tenant → public pool → optional legacy shared pool, then use priority tiers, A-Res weighting, and 5-minute affinity. Guard keys are stable and redacted: `BaseURL|first8(sha256(APIKey))` for API-key endpoints and `BaseURL|oauth:{endpointID}` for subscriptions. Same-endpoint backoff precedes cross-endpoint fallback; the SSE lease covers the full body, retaining its slot and reporting mid-stream failures. [Interactive HTML](docs/diagrams/archify/aris-arch-04.html)
 
-![Session data model & lifecycle](docs/diagrams/archify/aris-arch-03.gif)
+![Upstream scheduling and resilience](docs/diagrams/archify/aris-arch-04.gif)
 
-**Web admin console frontend architecture**: the browser loads the statically exported assets → a root-layout Provider chain (I18n → Theme → Auth) → route groups (13 admin pages / 3 public pages, admin pages guarded by `PermissionGuard`) → components and 6 shared hooks → `src/lib` as the sole backend gateway (Bearer injection, 401 single-flight refresh, error-code toasts, dataset SSE export).
+**05 · Subscription OAuth lifecycle**: Claude Code / Codex accounts bind through PKCE and one-time state; the verifier stays server-side, while the endpoint and AES-256-GCM credential are created in one transaction. Request-path refresh uses a 3-minute skew, and the maintenance Cron refreshes proactively and probes quota with 30-minute throttling. Authorization, refresh, probing, and model calls can share `OAUTH_SUBSCRIPTION_PROXY`; token rotation does not reset breaker identity, and quota snapshots never affect scheduling. [Interactive HTML](docs/diagrams/archify/aris-arch-05.html)
 
-![Web admin console frontend architecture](docs/diagrams/archify/aris-arch-05.gif)
+![Subscription OAuth credential lifecycle](docs/diagrams/archify/aris-arch-05.gif)
 
-**Frontend build & embedded delivery**: `next build` static export (`basePath: /web`) → `make web-build` copies and per-file `gzip -9` pre-compresses (10MB → 3.5MB) → `embed.FS` ships it with the server binary → `/web/*` explicitly resolves `Accept-Encoding` and serves pre-compressed content directly, while non-static paths fall back to `index.html`.
+### Data assets
 
-![Frontend build & embedded delivery](docs/diagrams/archify/aris-arch-06.gif)
+**06 · Session & content model**: Sessions authorize by `api_key_id`; Messages/Tools deduplicate globally by checksum, and Blobs by raw-byte sha256. A separate `FOR UPDATE` transaction merges continuations while preserving session ID, score, and shares, with targeted cache invalidation. ModelCallAudit remains an independent call fact. [Interactive HTML](docs/diagrams/archify/aris-arch-06.html)
 
-**Runtime metrics collection**: in-process `HTTPCollector` (request-latency histogram + success/failure counters), `SSEGauge` (concurrent SSE connections), `TokenUsageCounter` (input/output token throughput) and a Go runtime collector (`go_goroutines` / `go_memstats_alloc_bytes` / `process_cpu_seconds_total`) register into a Prometheus Registry; one `MetricsFlusher` per pod periodically (5s) runs `BuildSnapshot` and writes the snapshot to Redis (ZSET `metrics:runtime:data:{pod}` + an instance registry, with 24h retention cleanup). The runtime dashboard aggregation layer derives, from adjacent snapshots, an in-bucket mean for gauges / a positive counter delta ÷ bucket width for counters / a histogram bucket merge for P95, producing QPS / P95 / success rate / CPU% / tokens·s; the `/metrics` endpoint reads this pod's Registry directly via `promhttp.Handler`.
+![Session and content data model](docs/diagrams/archify/aris-arch-06.gif)
 
-![Runtime metrics collection](docs/diagrams/archify/aris-arch-09.gif)
+**07 · Asynchronous persistence**: `MessageStoreTask`, `ModelCallAuditTask`, and `DemoAccessAuditTask` share the bounded `Pond storePool` but keep distinct persistence paths. The session transaction neutralizes forged references, externalizes images, locks references, and deduplicates by checksum before post-commit prefix merging. Audits record the final outcome with four token dimensions, two latency phases, upstream status, and estimated cost. [Interactive HTML](docs/diagrams/archify/aris-arch-07.html)
 
-**Graceful shutdown**: `SIGINT` / `SIGTERM` triggers `fx.Lifecycle.OnStop` to run in reverse order (registration order Redis → DB → TriggerService → Logger → HTTP → Flusher → Inflight → Pool → Cron, so OnStop runs the reverse): stop cron (`CronManager.StopAll`, 3min) → stop the `pond` pool (`StopWithContext`, 3min) → drain `inflight` and wait for in-flight work (5min) → shut down HTTP (`ShutdownWithContext` 30s, letting SSE long connections drain, stopping the Flusher) → flush logs + stop TriggerService pub/sub → close DB → close Redis. Kubernetes pairs this with `preStop sleep 10` + `terminationGracePeriodSeconds 660` for lossless rollouts.
+![Asynchronous tasks and persistence data flow](docs/diagrams/archify/aris-arch-07.gif)
 
-![Graceful shutdown sequence](docs/diagrams/archify/aris-arch-10.gif)
+**08 · Images & dataset export**: client-supplied `aris-blob:` references are downgraded to text; valid base64 images receive server-generated ImageRefs and move through pending / uploaded states across PostgreSQL and S3-compatible storage. Session details and export share ImageReader. Export filters by API-key ownership, writes one ShareGPT object per NDJSON line, restores images as base64, and uses `X-Total-Sessions` for completeness checks. [Interactive HTML](docs/diagrams/archify/aris-arch-08.html)
 
-**Trigger-word hot reload**: after the admin console writes to the DB via `/api/web/v1/trigger`, `NotifyChanged` sends an immediate signal via Redis `Publish(trigger:changed)` plus a version broadcast `INCR(trigger:version)`; each pod's `TriggerService` combines pub/sub subscription, version polling (2s), and a low-frequency fallback (5min) to trigger a full `Rebuild` (rebuilding the in-memory Aho-Corasick matcher from `ListAll`). LLM requests run `Check`, and on a hit are blocked (deny) or masked (omit) by action; hit counts are batch-written back to the DB via the `TriggerHitSync` cron (every 5min `PopAll` → `BatchIncrementHitCount`).
+![Image externalization and dataset export data flow](docs/diagrams/archify/aris-arch-08.gif)
 
-![Trigger-word hot reload](docs/diagrams/archify/aris-arch-11.gif)
+### Governance & observability
 
-**Scheduled task trigger & execution**: the admin console updates spec / enabled via `/api/web/v1/cron` (`update_cron_job` validates the spec, and core tasks cannot be disabled) or manually triggers `CronManager.Trigger`; `CronManager` hot-reloads (`Restart` / `Enable` / `Disable`) and broadcasts across pods via the `cron:reload` Redis pub/sub (other pods sync in `handleMessage`). A Redis distributed lock (`cron:lock:{name}`, TTL 5min + ticker renewal) guarantees single-instance execution; `wrapCronFunc` injects traceID / an enabled check / panic recovery. The 4 tasks (terminal-cleanup scans the last 24h of terminal sessions hourly / purge on Sundays at 04:00 / think daily at 00:00 / hit-sync every 5min) each record a `CronCallAudit` (status + duration + trigger source). Session prefix dedup no longer runs via cron — after the insert transaction commits, a separate short transaction with a `FOR UPDATE` row lock merges same-prefix sessions in real time.
+**09 · Permissions, ownership & Demo**: `pending < demo < user < admin`; writes require user or above, ordinary resources are scoped by UserID / APIKeyID, and an empty scope yields an empty result. Only admins maintain public Endpoints. Demo uses fail-closed module allowlists, a session allowlist plus full-masking views, and login/module access auditing. [Interactive HTML](docs/diagrams/archify/aris-arch-09.html)
 
-![Scheduled task trigger & execution](docs/diagrams/archify/aris-arch-12.gif)
+![Permissions, ownership, and Demo governance](docs/diagrams/archify/aris-arch-09.gif)
 
-**Demo account architecture**: four-tier permissions `pending` < `demo` < `user` < `admin`, with a global singleton demo account offering a one-click read-only experience. The login page's "Continue as Demo" hits an unauthenticated, IP-rate-limited endpoint (token bucket 5s/8) calling `POST /api/web/v1/demo/login`; the DemoLogin command checks `login_enabled`, locates the demo user by permission, and issues a JWT. Login and module-access events (path/IP/UA) land in `demo_access_audits` for admin auditing. The frontend drives a three-state PermissionGuard and grays/locks Nav & delete buttons via `isDemo()` + `demoModules`. Demo read-only requests first pass an access line: the permission middleware whitelists by module (fail-closed), and `TokenBucketRateLimiterMiddleware`, via `WithPermissionFilter(demo)`, enables the `demoAccess` IP token bucket only for the demo permission (5s/30, 8 endpoint groups share one bucket globally, over-limit 429 + `Retry-After`; non-demo users pass at zero cost). Data is presented in two views: **session whitelist** — an admin ticks sessions in a dedicated `/demo` tab to batch add/remove `demo_sessions` (`session_id` unique index); the demo list uses `ListSessionsByIDs` and details are checked for membership via `IsAllowed`, with anything not whitelisted returning "not found" (to prevent enumeration), and whitelist contents are stored in plaintext (admin selection is the authorization). **Full masking** — audit/models/endpoints show full data but mask key fields (identity fields via `MaskIdentity` → `***`, connection fields via `MaskSecret` → keep first 4 / last 4), while statistics and aliases are deliberately kept. All write endpoints and LLM forwarding with existing API keys are naturally rejected because demo permission is below user — zero extra changes.
+**10 · Trigger-word hot reload**: database changes drive full Aho-Corasick rebuilds through `Publish(trigger:changed)`, `INCR(trigger:version)`, 2-second polling, and a 5-minute fallback. `deny` returns a protocol-native refusal, `omit` skips session storage only, and `capture` saves prior context without calling upstream; mixed hits resolve as deny > capture > omit. [Interactive HTML](docs/diagrams/archify/aris-arch-10.html)
 
-![Demo account architecture](docs/diagrams/archify/aris-arch-13.gif)
+![Trigger-word hot reload](docs/diagrams/archify/aris-arch-10.gif)
+
+**11 · Logs, audits & runtime metrics**: three fact chains stay independent—structured logs flow to CLS with `X-Trace-Id`, model calls reach PostgreSQL audits through Pond, and each Prometheus Registry snapshots to Redis every 5 seconds. Monitor currently shows QPS / CPU / memory / goroutines / network, while `/metrics` reads the local Registry through `promhttp.Handler`. [Interactive HTML](docs/diagrams/archify/aris-arch-11.html)
+
+![Logs, audits, and runtime metrics](docs/diagrams/archify/aris-arch-11.gif)
+
+**12 · Background jobs**: `CronManager` supports hot reload and manual triggers, `cron:reload` synchronizes pods, and Redis locks enforce single-instance execution with `CronCallAudit`. The 6 jobs are terminal cleanup, soft-delete purge, Think extraction, trigger-hit sync, blob upload retry, and OAuth maintenance. Session prefix merging runs after each store commit instead of occupying a Cron job. [Interactive HTML](docs/diagrams/archify/aris-arch-12.html)
+
+![Scheduled task trigger and execution](docs/diagrams/archify/aris-arch-12.gif)
+
+### Delivery & lifecycle
+
+**13 · Web frontend runtime**: Next.js statically exports the console; the root layout contains I18n / Theme / Auth, InteractionLayer, and first-frame theme/motion scripts. It currently has 15 dashboard pages, 4 public pages, and 12 shared hooks. `src/lib` is the sole backend gateway; Playground uses SSE and Dataset uses NDJSON. [Interactive HTML](docs/diagrams/archify/aris-arch-13.html)
+
+![Web frontend architecture](docs/diagrams/archify/aris-arch-13.gif)
+
+**14 · Frontend build & embedded delivery**: `next build` emits `/web` assets, `make web-build` copies and pre-compresses each file with `gzip -9`, and `embed.FS` ships them in the server binary. `/web/*` negotiates gzip explicitly, returns 404 for missing assets, and falls back to `index.html` for pages. Maple Mono CN is hosted on Cloudflare R2 rather than embedded. [Interactive HTML](docs/diagrams/archify/aris-arch-14.html)
+
+![Frontend build and embedded delivery](docs/diagrams/archify/aris-arch-14.gif)
+
+**15 · Deployment & release**: master / tag builds produce frontend assets and a Go binary, then publish a linux/amd64 image to GHCR through buildx. Master or manual runs deploy by digest and verify both `/health` and `/web/`. Kubernetes runs 2 replicas with `maxUnavailable: 0` and 512Mi / 1000m limits; tags also publish the four-platform aris client. [Interactive HTML](docs/diagrams/archify/aris-arch-15.html)
+
+![Deployment and release topology](docs/diagrams/archify/aris-arch-15.gif)
+
+**16 · Graceful shutdown**: Fx runs 9 hooks in reverse: Cron → Inflight → Pond → Metrics Flusher → HTTP → Logger → TriggerService → DB → Redis. Inflight drains before Pond stops so truncated streams can still record usage and persistence; Pond stops store → image upload → agent pools in order. Kubernetes coordinates rollout draining with `preStop sleep 10` and `terminationGracePeriodSeconds: 480`. [Interactive HTML](docs/diagrams/archify/aris-arch-16.html)
+
+![Graceful shutdown sequence](docs/diagrams/archify/aris-arch-16.gif)
 
 ## Tech Stack
 
@@ -209,7 +247,7 @@ cd web && npm ci && npm run dev   # http://localhost:3000
 | `make web-lint` / `make web-format` | Frontend ESLint / Prettier |
 | `make fgprof` | Pull a remote fgprof profile and open the flame graph |
 
-Server CLI: `server start`, `database migrate`, `lint conv/static` (`cmd/server`); `aris` client CLI: `aris init`, `aris model export`, `aris status`, `aris update` (`cmd/client`).
+Server CLI: `server start`, `database migrate`, `object migrate` (`cmd/server`); convention/static analysis: `lint conv/static` (`cmd/lint`); `aris` client CLI: `aris init`, `aris model export`, `aris status`, `aris update` (`cmd/client`).
 
 ## API Overview
 
@@ -233,25 +271,24 @@ All APIs are registered with Huma and generate OpenAPI; in development they can 
 - **Kubernetes**: Deployment + Service + ConfigMap/Secret, rolling updates; `preStop` + draining + `terminationGracePeriodSeconds` support lossless shutdown of long-lived SSE connections.
 - **CI**: GitHub Actions builds GHCR images and publishes the `aris` client Release (tar.gz + sha256); the server's `/install.sh` provides a self-contained install script.
 
-![Deployment & release topology](docs/diagrams/archify/aris-arch-07.gif)
-
 ## Project Structure
 
 ```text
-cmd/server        Server entry (start / database migrate / lint)
+cmd/server        Server entry (start / database migrate / object migrate)
+cmd/lint          Convention and static-analysis entry
 cmd/client        aris client entry
 internal/
   router/         Route registration (Huma Operation + middleware binding)
   handler/        HTTP adaptation layer
   application/    Use-case orchestration (identity/session/llmproxy/...)
   domain/         Domain models and rules
-  infrastructure/ GORM Repository, Redis, JWT, LLM Transport, goroutine pool
-  cron/           Scheduled tasks (terminal cleanup, soft-deleted purge, Think extraction, trigger-hit sync)
+  infrastructure/ GORM Repository, Redis, JWT, LLM Transport, OAuth, object storage, goroutine pool
+  cron/           6 maintenance jobs (session, Think, trigger, blob, OAuth)
   bootstrap/      Fx dependency injection & lifecycle
   web/dist        Frontend build output (embed.FS)
 web/              Next.js admin console source
-  src/app/        App Router route groups ((dashboard) 13 pages · login / callback / share)
-  src/components/ Base & business components (ui / charts / chat / session-detail)
+  src/app/        App Router route groups ((dashboard) 15 pages · portal / login / callback / share)
+  src/components/ Base & business components (ui / charts / chat / dataset / playground / motion)
   src/lib/        api-client · auth-context · i18n · theme · types (backend DTO mirrors)
 docker/           Dockerfile and Compose configs
 env/              Environment variable templates

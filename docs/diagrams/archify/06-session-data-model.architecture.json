@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Session & Content Data Model",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "animation": "trace",
+    "repository": {
+      "url": "https://github.com/hcd233/aris-mass",
+      "revision": "e5fb3cc437465f373c2a87d0945be63f7716ded2"
+    },
+    "viewBox": [1140, 620],
+    "views": [
+      { "id": "write-path", "label": "Writes & Images", "focus": ["llm-forward", "trace-ingest", "session", "msg-tool"], "note": "LLM calls write sessions asynchronously; images link to messages through Blob state and ImageRef." },
+      { "id": "entities", "label": "Content-addressed Entities", "focus": ["session", "msg-tool", "cache", "trace-ingest"], "note": "Message / Tool dedupe by checksum; Blob dedupes by raw-byte sha256." },
+      { "id": "consumers", "label": "Consumers & Governance", "focus": ["web", "export", "share", "audit", "cron"], "note": "Queries, scoring, export, sharing, audit and Cron all operate around the aggregate." }
+    ]
+  },
+  "components": [
+    { "id": "llm-forward", "type": "backend", "label": "LLM Forwarding", "sublabel": "MessageStoreTask · checksum dedupe", "tag": "Async write", "pos": [40, 80], "size": [260, 88], "sources": [{ "path": "internal/infrastructure/pool/store_pool.go" }] },
+    { "id": "trace-ingest", "type": "database", "label": "Blob Image Records", "sublabel": "sha256 bytes · ImageRef · DB + S3", "tag": "Content dedupe", "pos": [40, 220], "size": [260, 88], "sources": [{ "path": "internal/infrastructure/blobstore/externalizer.go" }] },
+    { "id": "session", "type": "backend", "label": "Session Aggregate", "sublabel": "message_ids[] · tool_ids[] · questions[] · score 1-5", "tag": "APIKeyID owner", "pos": [400, 60], "size": [300, 140], "sources": [{ "path": "internal/domain/session/aggregate/session.go" }] },
+    { "id": "msg-tool", "type": "database", "label": "Message · Tool", "sublabel": "Agnostic JSON · immutable", "tag": "check_sum unique", "pos": [320, 270], "size": [190, 104] },
+    { "id": "cache", "type": "database", "label": "SessionDetailCache", "sublabel": "Redis meta+msg+tool · TTL 1h", "tag": "Exact invalidation", "pos": [600, 270], "size": [200, 88], "sources": [{ "path": "internal/infrastructure/cache/session_detail.go" }] },
+    { "id": "cron", "type": "backend", "label": "Cron Governance", "sublabel": "Terminal · soft-delete · think", "tag": "Redis lock", "pos": [420, 420], "size": [260, 88] },
+    { "id": "web", "type": "frontend", "label": "Web Admin", "sublabel": "Query · score · harness · lazy images", "tag": "Cached detail", "pos": [820, 40], "size": [280, 88] },
+    { "id": "export", "type": "backend", "label": "Training Data Export", "sublabel": "ShareGPT NDJSON · inline images", "tag": "Row per session", "pos": [820, 180], "size": [280, 88] },
+    { "id": "share", "type": "external", "label": "Session Sharing", "sublabel": "Redis UUID 24h · 1d/7d/30d/never", "tag": "IP limit, no auth", "pos": [820, 340], "size": [280, 88] },
+    { "id": "audit", "type": "database", "label": "ModelCallAudit", "sublabel": "4 tokens · 2 latencies · cost · trace_id", "tag": "Call fact", "pos": [820, 480], "size": [280, 88] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Writes & Image Externalization", "wraps": ["llm-forward", "trace-ingest"], "pad": 10 },
+    { "kind": "region", "label": "Session Aggregate Hub", "wraps": ["session", "msg-tool", "cache"], "pad": 10 },
+    { "kind": "region", "label": "Consumers", "wraps": ["web", "export", "share", "audit"], "pad": 10 }
+  ],
+  "connections": [
+    { "id": "llm-write", "from": "llm-forward", "to": "session", "label": "One transaction", "fromSide": "right", "toSide": "left", "labelAt": [344, 110] },
+    { "id": "trace-write", "from": "trace-ingest", "to": "session", "label": "ImageRef linked to message", "fromSide": "right", "toSide": "left", "labelAt": [352, 214] },
+    { "id": "refs", "from": "session", "to": "msg-tool", "label": "Reference IDs", "fromSide": "bottom", "toSide": "top", "labelAt": [480, 226] },
+    { "id": "cache-read", "from": "session", "to": "cache", "label": "Three-layer cache", "fromSide": "bottom", "toSide": "top", "labelAt": [640, 232] },
+    { "id": "web-query", "from": "web", "to": "session", "label": "Query · score", "fromSide": "left", "toSide": "right" },
+    { "id": "export-stream", "from": "export", "to": "session", "label": "Stream export", "fromSide": "left", "toSide": "right" },
+    { "id": "cron-govern", "from": "cron", "to": "session", "label": "Terminal cleanup", "variant": "dashed", "fromSide": "top", "toSide": "bottom" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Aggregates & Content Addressing", "items": ["Session belongs to api_key_id; Message / Tool dedupe by checksum and Blob by sha256", "Continuations merge under FOR UPDATE in a short transaction, preserving ID, score and sharing"] },
+    { "dot": "emerald", "title": "Reads & Caching", "items": ["Three-layer detail cache with 1h TTL and exact invalidation; images load on demand", "Harness derives from first client_ua + longest-prefix rule and never affects auth or routing"] },
+    { "dot": "rose", "title": "Consumers & Governance", "items": ["Web queries and scores; NDJSON export restores base64 images; shares use IP limits", "ModelCallAudit records calls independently; Cron handles cleanup and Think extraction"] }
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Subscription OAuth Credential Lifecycle",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "animation": "trace",
+    "column_fit": "spread",
+    "viewBox": [1052, 570],
+    "views": [
+      { "id": "authorization", "label": "Authorize & Bind", "focus": ["user", "command", "flow", "official", "credential-db"], "note": "PKCE and one-time state bind the endpoint and encrypted credentials in one transaction." },
+      { "id": "maintenance", "label": "Proactive Refresh", "focus": ["maintenance", "tokens", "official", "credential-db"], "note": "Maintenance refreshes tokens proactively and probes quota with 30-minute throttling." },
+      { "id": "request-path", "label": "Request-time Access", "focus": ["transport", "tokens", "official", "upstream"], "note": "Requests refresh on demand and forward with a stable endpoint identity." }
+    ]
+  },
+  "participants": [
+    { "id": "user", "type": "external", "label": "User", "sublabel": "JWT" },
+    { "id": "command", "type": "backend", "label": "Authorize Cmd", "sublabel": "Endpoint" },
+    { "id": "flow", "type": "database", "label": "Redis Flow", "sublabel": "TTL 10m" },
+    { "id": "official", "type": "cloud", "label": "OAuth IdP", "sublabel": "Shared proxy egress" },
+    { "id": "credential-db", "type": "database", "label": "Credential DB", "sublabel": "AES-256-GCM" },
+    { "id": "tokens", "type": "security", "label": "TokenProvider", "sublabel": "Cache + lock" },
+    { "id": "maintenance", "type": "backend", "label": "Maintenance", "sublabel": "Cron 10m" },
+    { "id": "transport", "type": "backend", "label": "Sub Proxy", "sublabel": "Transport" },
+    { "id": "upstream", "type": "cloud", "label": "Sub Upstream", "sublabel": "Claude · Codex" }
+  ],
+  "segments": [
+    { "from": 160, "to": 250, "label": "PKCE Authorization" },
+    { "from": 258, "to": 366, "label": "Exchange & Bind" },
+    { "from": 370, "to": 506, "label": "Maintain & Refresh" }
+  ],
+  "messages": [
+    { "from": "user", "to": "command", "y": 178, "label": "POST /oauth/authorize", "variant": "emphasis" },
+    { "from": "command", "to": "flow", "y": 206, "label": "Put state·userID·verifier", "variant": "security" },
+    { "from": "user", "to": "official", "y": 234, "label": "Open AuthorizeURL · grant access", "variant": "security" },
+    { "from": "user", "to": "command", "y": 262, "label": "POST /oauth/exchange", "variant": "emphasis" },
+    { "from": "command", "to": "flow", "y": 290, "label": "Take state · one-time · owner check", "variant": "security" },
+    { "from": "command", "to": "official", "y": 318, "label": "Exchange code + verifier for tokens", "variant": "security" },
+    { "from": "command", "to": "credential-db", "y": 346, "label": "Create Endpoint + encrypted credentials", "variant": "emphasis" },
+    { "from": "maintenance", "to": "tokens", "y": 374, "label": "RefreshIfNeeded · active credentials", "variant": "dashed" },
+    { "from": "transport", "to": "tokens", "y": 402, "label": "GetAccessToken(endpointID)", "variant": "emphasis" },
+    { "from": "tokens", "to": "official", "y": 430, "label": "Refresh 3min early · double-check under lock", "variant": "dashed" },
+    { "from": "transport", "to": "upstream", "y": 458, "label": "Identity headers/body · stable breaker key", "variant": "emphasis" },
+    { "from": "upstream", "to": "transport", "y": 486, "label": "Response · 429 falls back across endpoints", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "command", "from": 174, "to": 354, "type": "backend" },
+    { "participant": "flow", "from": 202, "to": 298, "type": "database" },
+    { "participant": "official", "from": 230, "to": 438, "type": "cloud" },
+    { "participant": "credential-db", "from": 342, "to": 354, "type": "database" },
+    { "participant": "tokens", "from": 370, "to": 438, "type": "security" },
+    { "participant": "transport", "from": 398, "to": 486, "type": "backend" },
+    { "participant": "upstream", "from": 454, "to": 486, "type": "cloud" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Authorization & Credentials", "items": ["Verifier stays server-side; flow is consumed once and checked against user and provider", "Endpoint fields stay immutable; tokens are AES-256-GCM encrypted and never enter APIs or logs"] },
+    { "dot": "emerald", "title": "Refresh & Recovery", "items": ["Refresh 3 minutes early with cache + Redis lock + double-check to prevent concurrent rotation", "Only invalid_grant requires reauth; reauthorization restores active and clears the old access cache"] },
+    { "dot": "amber", "title": "Forwarding & Quota", "items": ["Authorization, refresh, probes and model requests may share the subscription proxy egress", "Breaker key is oauth:{endpointID}; quota snapshots are display-only and never affect routing"] }
+  ]
+}

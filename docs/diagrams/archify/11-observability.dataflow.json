@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Logs, Audit & Runtime Metrics",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "animation": "trace",
+    "viewBox": [1068, 560],
+    "views": [
+      { "id": "trace-logs", "label": "Trace Logs", "focus": ["http-event", "zap", "cls", "analysis-ui"], "note": "Access, routing, upstream, stream consumption and persistence logs correlate through X-Trace-Id." },
+      { "id": "call-audit", "label": "Call Audit", "focus": ["llm-event", "audit-task", "audit-db", "analysis-ui"], "note": "Call finalization writes the audit table asynchronously for usage, cost and availability dashboards." },
+      { "id": "runtime-metrics", "label": "Runtime Metrics", "focus": ["runtime-event", "registry", "snapshot", "monitor"], "note": "Pod snapshots go to Redis for Monitor aggregation while /metrics reads Registry directly." }
+    ]
+  },
+  "stages": [
+    { "label": "Event Sources" },
+    { "label": "Collect & Normalize" },
+    { "label": "Persist & Aggregate" },
+    { "label": "Consumers" }
+  ],
+  "nodes": [
+    { "id": "http-event", "type": "backend", "label": "HTTP Events", "sublabel": "Access · route · upstream", "stage": 0, "row": 0, "tag": "Request path" },
+    { "id": "llm-event", "type": "backend", "label": "Model Call Finalize", "sublabel": "usage · latency · cost", "stage": 0, "row": 1, "tag": "recordModelCall" },
+    { "id": "runtime-event", "type": "backend", "label": "Runtime Events", "sublabel": "HTTP · SSE · Process", "stage": 0, "row": 2, "tag": "Per Pod" },
+    { "id": "zap", "type": "backend", "label": "Zap Logging", "sublabel": "X-Trace-Id · event · outcome", "stage": 1, "row": 0, "width": 160, "tag": "Redacted fields" },
+    { "id": "audit-task", "type": "messagebus", "label": "AuditTask", "sublabel": "4 tokens · 2 latencies", "stage": 1, "row": 1, "width": 150, "tag": "Final once" },
+    { "id": "registry", "type": "backend", "label": "Prom Registry", "sublabel": "Histogram · Counter · Gauge", "stage": 1, "row": 2, "width": 160, "tag": "In-process" },
+    { "id": "cls", "type": "cloud", "label": "Tencent CLS", "sublabel": "AsyncProducer · deep copy", "stage": 2, "row": 0, "width": 150, "tag": "Async upload" },
+    { "id": "audit-db", "type": "database", "label": "PostgreSQL Audit", "sublabel": "Usage · cost · uptime", "stage": 2, "row": 1, "width": 160, "tag": "Call facts" },
+    { "id": "snapshot", "type": "database", "label": "Redis Snapshots", "sublabel": "5s ZSET · 24h · cross-Pod", "stage": 2, "row": 2, "width": 160, "tag": "Flusher" },
+    { "id": "analysis-ui", "type": "frontend", "label": "CLS / Audit Boards", "sublabel": "Trace · usage", "stage": 3, "row": 0, "tag": "Debug & govern" },
+    { "id": "monitor", "type": "frontend", "label": "Monitor + /metrics", "sublabel": "Cross-Pod · local direct", "stage": 3, "row": 2, "tag": "Dual consume" }
+  ],
+  "flows": [
+    { "id": "http-zap", "from": "http-event", "to": "zap", "label": "Structured", "variant": "emphasis" },
+    { "id": "zap-cls", "from": "zap", "to": "cls", "label": "Batch", "variant": "dashed" },
+    { "id": "cls-ui", "from": "cls", "to": "analysis-ui", "label": "Search", "variant": "default", "route": "straight" },
+    { "id": "llm-audit", "from": "llm-event", "to": "audit-task", "label": "Finalize", "variant": "emphasis" },
+    { "id": "audit-pg", "from": "audit-task", "to": "audit-db", "label": "Pond async", "variant": "dashed" },
+    { "id": "pg-ui", "from": "audit-db", "to": "analysis-ui", "label": "Query", "variant": "default" },
+    { "id": "runtime-registry", "from": "runtime-event", "to": "registry", "label": "Register", "variant": "emphasis" },
+    { "id": "registry-snapshot", "from": "registry", "to": "snapshot", "label": "BuildSnapshot", "variant": "dashed", "route": "straight", "labelDx": 60, "labelDy": 56 },
+    { "id": "snapshot-monitor", "from": "snapshot", "to": "monitor", "label": "Aggregate", "variant": "default" },
+    { "id": "registry-prom", "from": "registry", "to": "monitor", "label": "Gather direct", "variant": "default", "route": "bottom-channel", "labelDy": 30 }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Trace Log Chain", "items": ["Access logs mark response readiness; SSE consumption is recorded separately by the stream callback", "Routing, retry, call and persistence events are redacted and reach CLS with X-Trace-Id"] },
+    { "dot": "emerald", "title": "Call Audit Chain", "items": ["Final calls asynchronously record four token dimensions, two latency stages, status and cost", "Dashboard / Audit aggregates PostgreSQL facts separately from runtime metrics"] },
+    { "dot": "amber", "title": "Dual Runtime Consumption", "items": ["Flusher writes each Pod every 5s to Redis; Monitor aggregates QPS, resources and network", "/metrics reads the local Pod Registry directly through promhttp, bypassing Redis"] }
+  ]
+}
