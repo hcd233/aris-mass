@@ -9,8 +9,8 @@ Aris 将多个 MaaS 平台、多种模型和多种 API 协议统一接入，通�
 ## 核心能力
 
 - **模型聚合与统一入口**：Endpoint/Model 两级配置（用户级多租户，普通用户管理自己的端点与模型，admin 可按用户过滤与代建），模型别名屏蔽上游差异，一个别名可关联多个 Endpoint；同时提供 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages 兼容入口，并支持 OpenAI 与 Anthropic 之间的跨协议转换（含 SSE 流式事件）。
-- **数据沉淀与治理**：模型交互聚合为 Session，Message/Tool 以协议无关结构存储并按 checksum 内容寻址去重；支持评分、分享链接、会话筛选与 ShareGPT JSONL 流式导出，为私有模型 SFT 沉淀数据资产。
-- **审计与运行监控**：每次调用记录 Token 四类用量、首 Token 延迟、流式时长、上游状态码和 Trace ID；提供趋势/成功率/吞吐/用量统计、Cron 审计，以及跨 Pod 的 QPS、P95、SSE 连接、goroutines/heap/CPU 运行时监控。
+- **数据沉淀与治理**：模型交互聚合为 Session，Message/Tool 以协议无关结构存储并按 checksum 内容寻址去重；支持评分、分享链接、会话筛选与 ShareGPT NDJSON 流式导出（含图片内联），为私有模型 SFT 沉淀数据资产。
+- **审计与运行监控**：每次调用记录 Token 四类用量、首 Token 延迟、流式时长、上游状态码和 Trace ID；提供趋势/成功率/吞吐/用量统计、Cron 审计，以及跨 Pod 的 QPS、CPU、内存、协程和网络收发监控。
 - **订阅账号 OAuth 接入（Claude Code / Codex）**：订阅账号以独立的端点类型（`oauth_anthropic` / `oauth_openai`）经官方 OAuth 授权接入。access token 自动刷新（请求路径 3 分钟提前量 + 维护 Cron），凭据以 AES-256-GCM 密文存储；熔断键使用端点级稳定身份，token 轮换不会重置熔断状态。模型别名像普通端点一样绑定——调度、fallback、审计、计价与数据治理零改动复用；订阅窗口用量（Claude 5h/7d、Codex primary/secondary）由 Cron 探测并在管理端展示。
 - **客户端配置导出**：`aris model export` 从服务端启用模型列表生成 OpenCode、Claude Code、Codex、Pi、DSH 的接入配置，幂等 patch、`.bak` 备份、原子替换、凭证文件 `0600`。
 - **安全与治理**：GitHub/Google OAuth2 登录 + JWT 管理鉴权，Proxy API Key 调用鉴权，`pending`/`demo`/`user`/`admin` 四级权限与用户审核（demo 演示账户：模块白名单 + 会话白名单/全量脱敏双视角 + 一键登录 + 访问审计），Aho-Corasick 触发词拦截，Redis 令牌桶请求限流与 Token 用量限流。
@@ -60,7 +60,7 @@ Aris 将多个 MaaS 平台、多种模型和多种 API 协议统一接入，通�
 
 **5 · 路由与调度** — Aris：优先级分档 + 档内 A-Res 加权洗牌 + 会话亲和（TTL 5 分钟，fail-open）。new-api：加权随机 + 可拖拽优先级 + 渠道亲和 + `auto` 跨分组重试。LiteLLM：5 种策略（默认 `simple-shuffle`）+ 四类专用路由器 + Auto Router。OmniRoute：19 种 combo 策略 + 16 因子打分。sub2api：粘性会话 + 分组内选号。
 
-**6 · 熔断 / 隔离 / 降级** — Aris ✅：重试循环外 `Guard`——`BaseURL\|APIKey` 三态熔断（60s × 6 桶，≥10 请求且 ≥50% 错误打开，30s → 半开 1 次探测）+ 按 Key 信号量（≤32、1s）→ 503 + `Retry-After`，429 不计入。new-api ◐：定时健康探测 + 自动禁用/恢复，无阈值熔断。LiteLLM ◐：仅 router cooldown。OmniRoute ✅：提供商熔断（仅 408/5xx，8×/12×/2× → 半开 60/30/15s）+ 连接冷却（×2 退避，遵循 `Retry-After`）+ 单模型锁死 + 过载排队。sub2api ✅：账号错误策略 + 临时不可调度 + failover。
+**6 · 熔断 / 隔离 / 降级** — Aris ✅：重试循环外 `Guard`——按 `BaseURL\|hash(APIKey)` 或订阅端点稳定身份的三态熔断（60s 窗口，≥10 请求且 ≥50% 错误打开，30s → 半开 1 次探测）+ 按 Key 信号量（≤32、1s）→ 503 + `Retry-After`；429 不计入，SSE body 租约持续占槽并上报断流。new-api ◐：定时健康探测 + 自动禁用/恢复，无阈值熔断。LiteLLM ◐：仅 router cooldown。OmniRoute ✅：提供商熔断（仅 408/5xx，8×/12×/2× → 半开 60/30/15s）+ 连接冷却（×2 退避，遵循 `Retry-After`）+ 单模型锁死 + 过载排队。sub2api ✅：账号错误策略 + 临时不可调度 + failover。
 
 **7 · 多租户与权限** — OmniRoute —：单运营者，仅 API-Key 作用域、IP 过滤与 33 个 MCP scope。Aris：用户级多租户。new-api：用户/分组/令牌 + 细粒度管理权限。LiteLLM：Organizations → Teams → Users → Virtual Keys（企业版组织/团队管理员）。sub2api：用户/分组 + 用户级与账号级并发。
 
@@ -74,7 +74,7 @@ Aris 将多个 MaaS 平台、多种模型和多种 API 协议统一接入，通�
 
 **12 · 对话正文落库** — Aris ✅：每次调用的完整历史落 Session 聚合，Message/Tool 按 checksum 去重、协议无关存储，同前缀快照实时合并（例外：触发词 `omit` 与 Playground）。new-api —：日志字段只有 Token/费用/延迟/ID，请求记录 prompt 的 issue #924/#2721/#2982/#4852 全部 closed。LiteLLM ◐：默认关闭，需 `store_prompts_in_spend_logs` 开启，另有 `turn_off_message_logging`、`no-log` 脱敏开关。
 
-**13 · 对话数据集导出** — Aris ✅：ShareGPT JSONL 流式导出（SSE 带进度），保留多轮对话、`<think>` 思维链与工具调用，支持评分/模型/时间窗筛选与导出前统计预览。LiteLLM ◐：Lens datasets（Export JSONL）面向**评测**，需独立 Lens 服务 + ClickHouse，无 ShareGPT/SFT 格式。
+**13 · 对话数据集导出** — Aris ✅：ShareGPT NDJSON 流式导出（一会话一行，`X-Total-Sessions` 校验完整性），保留多轮对话、`<think>` 思维链、工具调用与内联图片，支持评分/模型/时间窗筛选与导出前统计预览。LiteLLM ◐：Lens datasets（Export JSONL）面向**评测**，需独立 Lens 服务 + ClickHouse，无 ShareGPT/SFT 格式。
 
 
 
@@ -86,57 +86,95 @@ Aris 将多个 MaaS 平台、多种模型和多种 API 协议统一接入，通�
 
 **17 · MCP / A2A** — LiteLLM ✅：MCP Gateway（按 Key 的 server/tool 权限、MCP 成本追踪、`/mcp` 可被 Cursor 接入）+ A2A Agent Gateway。OmniRoute ✅：内置 MCP 服务端 110 工具（stdio/HTTP/SSE，33 scope）+ A2A v0.3。new-api ◐：仅 JS 任务插件 + 市场。sub2api ◐：仅 `hashicorp/go-plugin` 插件体系。
 
-**18 · 部署与水平扩展** — Aris ✅：Compose/K8s（`preStop` + `terminationGracePeriodSeconds: 660`）+ 八步优雅关闭排空 SSE，跨 Pod 状态走 Redis。new-api ✅：多节点需共享主库 + 统一 `SESSION_SECRET`/`CRYPTO_SECRET`，共享限流需 Redis。LiteLLM ✅：Helm（HPA/KEDA）+ AWS/GCP 官方 Terraform（无 Azure）+ cosign 签名 + Prisma 迁移，多实例必须 Redis。OmniRoute ◐：单节点 SQLite，远程模式用作用域 token 驱动另一实例。
+**18 · 部署与水平扩展** — Aris ✅：Compose/K8s（`preStop` + `terminationGracePeriodSeconds: 480`）+ 9 个 Fx 生命周期 Hook 排空请求、SSE 和协程池，跨 Pod 状态走 Redis。new-api ✅：多节点需共享主库 + 统一 `SESSION_SECRET`/`CRYPTO_SECRET`，共享限流需 Redis。LiteLLM ✅：Helm（HPA/KEDA）+ AWS/GCP 官方 Terraform（无 Azure）+ cosign 签名 + Prisma 迁移，多实例必须 Redis。OmniRoute ◐：单节点 SQLite，远程模式用作用域 token 驱动另一实例。
 
 **19 · 扩展机制** — Aris ◐：无插件体系，扩展点是 models.dev 导入与 Fx 装配。new-api ✅：JS 任务插件（文档化 API + 市场）+ 自定义 OAuth 提供商。LiteLLM ✅：8 个 `CustomLogger` 挂载点 + 任意语言 guardrail API + 自定义认证/SSO/密钥管理 + 改一个 JSON 注册提供商 + `s3://`/`gcs://` 加载回调。OmniRoute ✅：插件框架、市场与 skills 框架。sub2api ✅：`hashicorp/go-plugin` 与模块化 skills。
 
 ## 系统架构
 
-后端按 DDD 分层组织：接口层（router / 十级中间件链 / handler / dto）→ 应用层（16 个用例模块的 `command`/`query`/`port`）→ 领域层（聚合、值对象、仓储接口）；基础设施层反向实现仓储接口完成依赖倒置，Cron 定时治理与 `bootstrap`/Fx 装配作为横切关注点。两类调用方分别是 Web 管理后台（JWT）与 Agentic 客户端（`X-API-Key`）。
+架构图按 MECE 分为五个互斥视角，每张图只回答一个问题；静态结构、同步主链、异步数据流和发布生命周期不再混画。
+
+| 视角 | 图号 | 关注问题 |
+| --- | --- | --- |
+| 系统与接入 | 01–02 | 系统由什么组成，请求如何完成认证 |
+| 代理与上游 | 03–05 | 调用如何转发，端点如何调度，订阅凭据如何维护 |
+| 数据资产 | 06–08 | 会话与图片如何建模、落库并导出 |
+| 治理与观测 | 09–12 | 权限、内容、安全和后台维护如何运行 |
+| 交付与生命周期 | 13–16 | 前端如何运行和交付，服务如何发布与退出 |
+
+### 系统与接入
+
+**01 · 系统总览**：后端按 DDD 分层组织，17 个应用用例模块通过 `command` / `query` / `port` 依赖领域抽象，基础设施反向实现仓储接口；全局中间件为 Trace → Compress → Log → Recover → Metrics → Inflight → Guard → CORS → Locale，Fx 管理 9 个生命周期 Hook，6 个 Cron 负责后台维护。[交互 HTML](docs/diagrams/archify/aris-arch-01.html)
 
 ![系统总览 · DDD 分层](docs/diagrams/archify/aris-arch-01.gif)
 
-交互版（节点搜索 / 影响追踪 / 深浅主题 / 引导导览，节点附源码锚点）：[docs/diagrams/archify/aris-arch-01.html](docs/diagrams/archify/aris-arch-01.html)
+**02 · 接入分区与认证**：路由分为 Web / CLI / Proxy / Ops 四区。Web 的 `publicGroup` 与 `jwtGroup` 平行，避免公开 OAuth2、刷新、Demo 登录和分享被 JWT 中间件误伤；CLI 与 LLM Proxy 分别注册但共用 `X-API-Key` 认证；Ops 仅开放探活、指标和安装脚本。本图只讲认证，权限与归属见 09。[交互 HTML](docs/diagrams/archify/aris-arch-02.html)
 
-**LLM 代理链路**：鉴权/限流/触发词 → 端点解析（用户级隔离）→ 跨协议转换 → 上游；响应同步返回，消息与审计经 Pond 协程池异步落库，不阻塞请求。
+![接入分区与认证边界](docs/diagrams/archify/aris-arch-02.gif)
 
-![LLM 代理链路](docs/diagrams/archify/aris-arch-02.gif)
+### 代理与上游
 
-**上游容错（熔断/隔离/降级）**：proxy 转发链路在重试外层接入容错守卫 `Guard`——按 `BaseURL|APIKey` 维度的三态熔断器（滑动窗口 60s × 6 桶、≥10 请求且错误率 ≥50% 打开、30s 后半开限量 1 探测恢复）与 per-key 信号量隔离（并发 ≤32、等待 1s 超时）组合判定；熔断打开或满载时快速失败为 503 + `Retry-After` + 按入口协议格式的错误体。429 仍可重试但不计熔断（限流不算故障），已建立的 SSE 连接不受熔断影响；熔断状态与拒绝计数注册 Prometheus 指标（label 为 endpoint key）。
+**03 · LLM 代理主链**：API Key 鉴权 → 请求与 Token 双层限流 → 触发词 → 候选解析 → tool output 压缩与跨协议转换 → Guard / 重试 / fallback → 上游。支持 7 条 OpenAI ↔ Anthropic 转换路径及 Decision 原生转发；JSON / SSE 同步返回，会话与审计只在收尾移交异步任务。[交互 HTML](docs/diagrams/archify/aris-arch-03.html)
 
-![上游容错：熔断 / 隔离 / 降级](docs/diagrams/archify/aris-arch-14.gif)
+![LLM 代理转发核心链路](docs/diagrams/archify/aris-arch-03.gif)
 
-**会话数据模型与生命周期**：LLM 转发写入 Session 聚合根，Message/Tool 按 checksum 内容寻址去重，审计、缓存、导出与后台消费围绕其展开。
+**04 · 上游调度与容错**：别名按自有租户 → public 池 → 可选共享池解析，候选按 priority 分档、A-Res 加权和 5 分钟亲和排序。Guard 使用脱敏的稳定 key：API Key 端点为 `BaseURL|sha256(APIKey)前8位`，订阅端点为 `BaseURL|oauth:{endpointID}`。同端点指数退避后再跨端点 fallback；SSE 租约覆盖整个 body，慢流持续占槽、断流计入熔断。[交互 HTML](docs/diagrams/archify/aris-arch-04.html)
 
-![会话数据模型与生命周期](docs/diagrams/archify/aris-arch-03.gif)
+![上游调度与容错](docs/diagrams/archify/aris-arch-04.gif)
 
-**Web 管理后台前端架构**：浏览器加载静态导出产物 → 根布局 Provider 链（I18n → Theme → Auth）→ 路由组（后台 13 页 / 公开 3 页，管理员页由 `PermissionGuard` 守卫）→ 组件与 6 个通用 hooks → `src/lib` 作为唯一后端出入口（Bearer 注入、401 单飞刷新、错误码 toast、数据集 SSE 导出）。
+**05 · 订阅 OAuth 生命周期**：Claude Code / Codex 通过 PKCE + 一次性 state 绑定，verifier 仅保存在服务端，端点与 AES-256-GCM 凭据同事务创建。请求路径提前 3 分钟刷新 access token，维护 Cron 主动刷新并按 30 分钟节流探测额度；授权、刷新、探测与模型请求可共用 `OAUTH_SUBSCRIPTION_PROXY`。token 轮换不改变熔断身份，额度快照只展示、不参与调度。[交互 HTML](docs/diagrams/archify/aris-arch-05.html)
 
-![Web 管理后台前端架构](docs/diagrams/archify/aris-arch-05.gif)
+![订阅账号 OAuth 凭据生命周期](docs/diagrams/archify/aris-arch-05.gif)
 
-**前端构建与内嵌交付**：`next build` 静态导出（`basePath: /web`）→ `make web-build` 拷贝并逐文件 `gzip -9` 预压缩（10MB → 3.5MB）→ `embed.FS` 随服务端二进制发布 → `/web/*` 显式解析 `Accept-Encoding` 直发预压缩内容，非静态路径回落 `index.html`。
+### 数据资产
 
-![前端构建与内嵌交付](docs/diagrams/archify/aris-arch-06.gif)
+**06 · 会话与内容模型**：Session 以 `api_key_id` 鉴权归属，Message / Tool 按 checksum 全局去重，Blob 按原始字节 sha256 去重。续写合并在独立短事务中以 `FOR UPDATE` 保持会话 ID、评分和分享稳定，并精确失效缓存；ModelCallAudit 是独立的调用事实。[交互 HTML](docs/diagrams/archify/aris-arch-06.html)
 
-**运行时指标采集**：进程内 `HTTPCollector`（请求时延 histogram + 成功/失败 counter）、`SSEGauge`（SSE 并发连接）、`TokenUsageCounter`（输入/输出 token 吞吐）与 Go runtime 采集器（`go_goroutines` / `go_memstats_alloc_bytes` / `process_cpu_seconds_total`）注册进 Prometheus Registry；每 Pod 一个 `MetricsFlusher` 周期（5s）`BuildSnapshot` 把快照写入 Redis（ZSET `metrics:runtime:data:{pod}` + 实例注册表，retention 24h 清理）；运行时大盘经聚合层对相邻快照做 gauge 桶内均值 / counter 正向 delta÷桶宽 / histogram 桶合并求 P95，产出 QPS / P95 / 成功率 / CPU% / tokens·s；`/metrics` 端点经 `promhttp.Handler` 直读本 Pod Registry。
+![会话与内容数据模型](docs/diagrams/archify/aris-arch-06.gif)
 
-![运行时指标采集](docs/diagrams/archify/aris-arch-09.gif)
+**07 · 异步持久化**：`MessageStoreTask`、`ModelCallAuditTask`、`DemoAccessAuditTask` 共用有界 `Pond storePool`，但不共用持久化路径。会话事务完成引用清洗、图片外置、引用锁定和 checksum 去重，提交后再合并前缀；审计按终局结果记录 4 维 token、2 段延迟、上游状态与估算费用。[交互 HTML](docs/diagrams/archify/aris-arch-07.html)
 
-**优雅退出**：`SIGINT` / `SIGTERM` 触发 `fx.Lifecycle.OnStop` 逆序执行（注册顺序 Redis → DB → TriggerService → Logger → HTTP → Flusher → Inflight → Pool → Cron，故 OnStop 反序）；依次停 cron（`CronManager.StopAll`，3min）→ 停 `pond` 协程池（`StopWithContext`，3min）→ `inflight` drain 等在途（5min）→ 关 HTTP（`ShutdownWithContext` 30s，泄流 SSE 长连接，停 Flusher）→ 同步日志 + 停 TriggerService pub/sub → 关 DB → 关 Redis；K8s 配合 `preStop sleep 10` + `terminationGracePeriodSeconds 660` 无损下线。
+![异步任务与持久化数据流](docs/diagrams/archify/aris-arch-07.gif)
 
-![优雅退出序列](docs/diagrams/archify/aris-arch-10.gif)
+**08 · 图片与数据集**：客户端自带的 `aris-blob:` 引用先降级为文本，合法 base64 图片由服务端生成 ImageRef，并经 pending / uploaded 状态写入 DB 与 S3 兼容对象存储。详情读取与数据集导出共用 ImageReader；导出按 API Key 归属过滤，一会话一行 NDJSON，图片恢复为 base64，`X-Total-Sessions` 用于完整性校验。[交互 HTML](docs/diagrams/archify/aris-arch-08.html)
 
-**触发词热更新**：管理后台 `/api/web/v1/trigger` 写入 DB 后 `NotifyChanged` 经 Redis `Publish(trigger:changed)` 即时信号 + `INCR(trigger:version)` 版本广播；各 Pod `TriggerService` 通过 pub/sub 订阅、版本轮询（2s）与低频兜底（5min）三重同步触发全量 `Rebuild`（`ListAll` 重建内存 Aho-Corasick matcher）；LLM 请求经 `Check` 命中后按 action 拦截（deny）/ 打码（omit），命中计数经 `TriggerHitSync` cron（每 5min `PopAll` → `BatchIncrementHitCount`）批量回写 DB。
+![图片外置与数据集导出数据流](docs/diagrams/archify/aris-arch-08.gif)
 
-![触发词热更新](docs/diagrams/archify/aris-arch-11.gif)
+### 治理与观测
 
-**定时任务触发与执行**：管理后台 `/api/web/v1/cron` 更新 spec / enabled（`update_cron_job` 校验 spec、核心任务禁关）或手动触发 `CronManager.Trigger`；`CronManager` 热重载（`Restart` / `Enable` / `Disable`）并经 `cron:reload` Redis pub/sub 跨 Pod 广播（其他 Pod `handleMessage` 同步）；任务以 Redis 分布式锁（`cron:lock:{name}`，TTL 5min + ticker 续期）保证单实例执行，`wrapCronFunc` 注入 traceID / enabled 检查 / panic 恢复，4 个任务（terminal-cleanup 每小时扫描最近 24h 终态会话 / purge 周日 04:00 / think 每日 00:00 / hit-sync 每 5min）每次执行落 `CronCallAudit`（status + duration + trigger source）。Session 前缀去重不再走 cron——插入事务提交后以独立短事务 + `FOR UPDATE` 行锁实时合并同前缀会话。
+**09 · 权限、归属与 Demo**：`pending < demo < user < admin`，写接口要求 user 及以上；普通用户按 UserID / APIKeyID 隔离，空 scope 必须返回空结果。public Endpoint 仅 admin 可维护。Demo 采用模块白名单 fail-closed、会话白名单与全量脱敏双视角，并记录登录及模块访问审计。[交互 HTML](docs/diagrams/archify/aris-arch-09.html)
+
+![权限、归属与 Demo 治理](docs/diagrams/archify/aris-arch-09.gif)
+
+**10 · 触发词热更新**：DB 变更通过 `Publish(trigger:changed)`、`INCR(trigger:version)`、2 秒轮询和 5 分钟兜底驱动各 Pod 全量重建 Aho-Corasick。`deny` 返回协议原生拦截响应，`omit` 只跳过会话存储，`capture` 保存此前上下文且不请求上游；混合命中优先级为 deny > capture > omit。[交互 HTML](docs/diagrams/archify/aris-arch-10.html)
+
+![触发词热更新](docs/diagrams/archify/aris-arch-10.gif)
+
+**11 · 日志、审计与运行时指标**：三条事实链彼此独立——结构化日志经 `X-Trace-Id` 进入 CLS，模型调用经 Pond 写入 PostgreSQL 审计，Prometheus Registry 每 5 秒快照到 Redis。Monitor 当前展示 QPS / CPU / 内存 / 协程 / 网络，`/metrics` 则由 `promhttp.Handler` 直读本 Pod Registry。[交互 HTML](docs/diagrams/archify/aris-arch-11.html)
+
+![日志、审计与运行时指标](docs/diagrams/archify/aris-arch-11.gif)
+
+**12 · 后台任务**：`CronManager` 支持热重载与手动触发，`cron:reload` 跨 Pod 同步，Redis 锁保证单实例执行并记录 `CronCallAudit`。当前 6 项任务为终态清理、软删清理、Think 提取、触发词命中回写、图片补传和 OAuth 维护；Session 前缀合并在每次存储提交后实时执行，不占 Cron。[交互 HTML](docs/diagrams/archify/aris-arch-12.html)
 
 ![定时任务触发与执行](docs/diagrams/archify/aris-arch-12.gif)
 
-**Demo 演示账户架构**：四级权限 `pending` < `demo` < `user` < `admin`，全局单例 demo 账户一键只读体验。登录页「Continue as Demo」经无鉴权 IP 限流端点（令牌桶 5s/8）调用 `POST /api/web/v1/demo/login`，DemoLogin 命令校验 `login_enabled` 并按 permission 定位 demo 用户签发 JWT，登录与模块访问事件（path/IP/UA）落 `demo_access_audits` 供 admin 审计；前端以 `isDemo()` + `demoModules` 驱动 PermissionGuard 三态守卫与 Nav/删除按钮置灰锁定。demo 只读请求先过访问防线：权限中间件按模块白名单放行（fail-closed），`TokenBucketRateLimiterMiddleware` 以 `WithPermissionFilter(demo)` 仅对 demo 权限启用 `demoAccess` IP 令牌桶（5s/30，8 个接口组全局共享一桶，超限 429 + `Retry-After`；非 demo 用户零开销放行）。数据分两路视角：**会话白名单**——admin 在独立 `/demo` tab 勾选批量增删 `demo_sessions`（`session_id` 唯一索引），demo 列表走 `ListSessionsByIDs`、详情经 `IsAllowed` 成员校验，不在白名单一律返回"不存在"（防遍历），白名单内容明文（admin 选取即授权）；**全量脱敏**——audit/models/endpoints 展示全量数据但关键字段脱敏（身份类 `MaskIdentity` → `***`，连接类 `MaskSecret` → 保留前 4 后 4），统计数字与别名有意保留。全部写接口与存量 API Key 的 LLM 转发因 demo 权限低于 user 被天然拒绝，零额外改动。
+### 交付与生命周期
 
-![Demo 演示账户架构](docs/diagrams/archify/aris-arch-13.gif)
+**13 · Web 前端运行时**：Next.js 静态导出，根布局包含 I18n / Theme / Auth、InteractionLayer 与首帧主题和动效脚本；当前为 15 个后台页面、4 个公开页面及 12 个共享 hooks。`src/lib` 统一后端访问，Playground 使用 SSE，Dataset 使用 NDJSON。[交互 HTML](docs/diagrams/archify/aris-arch-13.html)
+
+![Web 管理后台前端架构](docs/diagrams/archify/aris-arch-13.gif)
+
+**14 · 前端构建与内嵌交付**：`next build` 输出 `/web` 静态产物，`make web-build` 拷贝并逐文件 `gzip -9`，再由 `embed.FS` 随服务端二进制发布。`/web/*` 显式协商 gzip，静态资源未命中返回 404，页面路径回落 `index.html`；Maple Mono CN 字体由 Cloudflare R2 托管，不进入二进制。[交互 HTML](docs/diagrams/archify/aris-arch-14.html)
+
+![前端构建与内嵌交付](docs/diagrams/archify/aris-arch-14.gif)
+
+**15 · 部署与发布**：master / tag 构建前端与 Go 二进制，通过 buildx 发布 linux/amd64 GHCR 镜像；master 或手动触发按 digest 滚动部署并验收 `/health` 与 `/web/`。K8s 运行 2 副本，`maxUnavailable: 0`，资源 limit 为 512Mi / 1000m；tag 同时发布 aris 四平台客户端。[交互 HTML](docs/diagrams/archify/aris-arch-15.html)
+
+![部署与发布拓扑](docs/diagrams/archify/aris-arch-15.gif)
+
+**16 · 优雅退出**：Fx 逆序执行 9 个 Hook：Cron → Inflight → Pond → Metrics Flusher → HTTP → Logger → TriggerService → DB → Redis。Inflight 先于 Pond，确保被截断流仍能完成计量和存储；Pond 内部按 store → 图片上传 → agent 停止。K8s 以 `preStop sleep 10` 和 `terminationGracePeriodSeconds: 480` 配合滚动摘流。[交互 HTML](docs/diagrams/archify/aris-arch-16.html)
+
+![优雅退出序列](docs/diagrams/archify/aris-arch-16.gif)
 
 ## 技术栈
 
@@ -211,7 +249,7 @@ cd web && npm ci && npm run dev   # http://localhost:3000
 | `make web-lint` / `make web-format` | 前端 ESLint / Prettier |
 | `make fgprof` | 拉取远程 fgprof profile 并打开火焰图 |
 
-服务端 CLI：`server start`、`database migrate`、`lint conv/static`（`cmd/server`）；`aris` 客户端 CLI：`aris init`、`aris model export`、`aris status`、`aris update`（`cmd/client`）。
+服务端 CLI：`server start`、`database migrate`、`object migrate`（`cmd/server`）；规范与静态分析：`lint conv/static`（`cmd/lint`）；`aris` 客户端 CLI：`aris init`、`aris model export`、`aris status`、`aris update`（`cmd/client`）。
 
 ## API 概览
 
@@ -235,25 +273,24 @@ cd web && npm ci && npm run dev   # http://localhost:3000
 - **Kubernetes**：Deployment + Service + ConfigMap/Secret，滚动更新；`preStop` + draining + `terminationGracePeriodSeconds` 支持 SSE 长连接无损下线。
 - **CI**：GitHub Actions 构建 GHCR 镜像并发布 `aris` 客户端 Release（tar.gz + sha256），服务端 `/install.sh` 提供自包含安装脚本。
 
-![部署与发布拓扑](docs/diagrams/archify/aris-arch-07.gif)
-
 ## 项目结构
 
 ```text
-cmd/server        服务端入口（start / database migrate / lint）
+cmd/server        服务端入口（start / database migrate / object migrate）
+cmd/lint          规范与静态分析入口
 cmd/client        aris 客户端入口
 internal/
   router/         路由注册（Huma Operation + 中间件绑定）
   handler/        HTTP 适配层
   application/    用例编排（identity/session/llmproxy/...）
   domain/         领域模型与规则
-  infrastructure/ GORM Repository、Redis、JWT、LLM Transport、协程池
-  cron/           定时任务（终态清理、软删数据清理、Think 提取、触发词命中同步）
+  infrastructure/ GORM Repository、Redis、JWT、LLM Transport、OAuth、对象存储、协程池
+  cron/           6 个维护任务（会话、Think、触发词、图片、OAuth）
   bootstrap/      Fx 依赖注入与生命周期
   web/dist        前端构建产物（embed.FS）
 web/              Next.js 管理后台源码
-  src/app/        App Router 路由组（(dashboard) 13 页 · login / callback / share）
-  src/components/ 基础与业务组件（ui / charts / chat / session-detail）
+  src/app/        App Router 路由组（(dashboard) 15 页 · 门户 / login / callback / share）
+  src/components/ 基础与业务组件（ui / charts / chat / dataset / playground / motion）
   src/lib/        api-client · auth-context · i18n · theme · types（后端 DTO 镜像）
 docker/           Dockerfile 与 Compose 配置
 env/              环境变量模板

@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "订阅账号 OAuth 凭据生命周期",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "animation": "trace",
+    "column_fit": "spread",
+    "viewBox": [1052, 580],
+    "views": [
+      { "id": "authorization", "label": "授权与绑定", "focus": ["user", "command", "flow", "official", "credential-db"], "note": "PKCE 与一次性 state 完成绑定，端点和加密凭据同事务创建。" },
+      { "id": "maintenance", "label": "主动维护", "focus": ["maintenance", "tokens", "official", "credential-db"], "note": "维护任务主动刷新，并按 30 分钟节流探测额度。" },
+      { "id": "request-path", "label": "请求时取用", "focus": ["transport", "tokens", "official", "upstream"], "note": "请求时按需刷新，以稳定端点身份转发。" }
+    ]
+  },
+  "participants": [
+    { "id": "user", "type": "external", "label": "用户", "sublabel": "JWT" },
+    { "id": "command", "type": "backend", "label": "授权命令", "sublabel": "Endpoint" },
+    { "id": "flow", "type": "database", "label": "Redis Flow", "sublabel": "TTL 10m" },
+    { "id": "official", "type": "cloud", "label": "官方 OAuth", "sublabel": "共享代理出口" },
+    { "id": "credential-db", "type": "database", "label": "凭据库", "sublabel": "AES-256-GCM" },
+    { "id": "tokens", "type": "security", "label": "TokenProvider", "sublabel": "缓存+锁" },
+    { "id": "maintenance", "type": "backend", "label": "维护 Cron", "sublabel": "10min" },
+    { "id": "transport", "type": "backend", "label": "订阅转发", "sublabel": "Transport" },
+    { "id": "upstream", "type": "cloud", "label": "订阅上游", "sublabel": "Claude·Codex" }
+  ],
+  "segments": [
+    { "from": 160, "to": 250, "label": "PKCE 授权" },
+    { "from": 258, "to": 366, "label": "兑换与加密绑定" },
+    { "from": 374, "to": 506, "label": "维护与请求时刷新" }
+  ],
+  "messages": [
+    { "from": "user", "to": "command", "y": 180, "label": "POST /oauth/authorize", "variant": "emphasis" },
+    { "from": "command", "to": "flow", "y": 208, "label": "Put state·userID·verifier", "variant": "security" },
+    { "from": "user", "to": "official", "y": 236, "label": "持 AuthorizeURL 完成官方授权", "variant": "security" },
+    { "from": "user", "to": "command", "y": 264, "label": "POST /oauth/exchange", "variant": "emphasis" },
+    { "from": "command", "to": "flow", "y": 292, "label": "Take state · 一次性·归属校验", "variant": "security" },
+    { "from": "command", "to": "official", "y": 320, "label": "code + verifier 换 token", "variant": "security" },
+    { "from": "command", "to": "credential-db", "y": 348, "label": "事务创建 Endpoint + 密文凭据", "variant": "emphasis" },
+    { "from": "maintenance", "to": "tokens", "y": 376, "label": "RefreshIfNeeded · active 凭据", "variant": "dashed" },
+    { "from": "transport", "to": "tokens", "y": 404, "label": "GetAccessToken(endpointID)", "variant": "emphasis" },
+    { "from": "tokens", "to": "official", "y": 432, "label": "3min 提前量 · 锁内双检刷新", "variant": "dashed" },
+    { "from": "transport", "to": "upstream", "y": 460, "label": "身份头/body 特化 · 稳定熔断键", "variant": "emphasis" },
+    { "from": "upstream", "to": "transport", "y": 488, "label": "响应 · 429 走跨端点 fallback", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "command", "from": 174, "to": 354, "type": "backend" },
+    { "participant": "flow", "from": 202, "to": 298, "type": "database" },
+    { "participant": "official", "from": 230, "to": 438, "type": "cloud" },
+    { "participant": "credential-db", "from": 342, "to": 354, "type": "database" },
+    { "participant": "tokens", "from": 370, "to": 438, "type": "security" },
+    { "participant": "transport", "from": 398, "to": 494, "type": "backend" },
+    { "participant": "upstream", "from": 454, "to": 494, "type": "cloud" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "授权与凭据", "items": ["verifier 仅服务端保存；flow 取即删并校验用户与 provider", "Endpoint 连接字段固定，token 以 AES-256-GCM 落库且不进入 API 或日志"] },
+    { "dot": "emerald", "title": "刷新与恢复", "items": ["请求提前 3 分钟刷新，缓存 + Redis 锁 + 双检避免并发轮换", "invalid_grant 才要求 reauth；重新授权恢复 active 并清除旧 access 缓存"] },
+    { "dot": "amber", "title": "转发与额度", "items": ["授权、刷新、探测与模型请求可共用订阅代理出口", "熔断键为 oauth:{endpointID}；额度快照只展示，不参与调度"] }
+  ]
+}

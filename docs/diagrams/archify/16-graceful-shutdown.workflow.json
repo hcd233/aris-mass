@@ -1,0 +1,39 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "优雅退出序列",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "animation": "trace"
+  },
+  "lanes": [
+    { "id": "signal", "label": "触发与后台" },
+    { "id": "drain", "label": "泄流与释放" }
+  ],
+  "mainPath": ["sig", "fx", "cron", "inflight", "pond", "http", "log", "rel"],
+  "nodes": [
+    { "id": "sig", "lane": "signal", "col": 0, "type": "external", "label": "终止信号", "sublabel": "SIGINT/SIGTERM · preStop 10s", "width": 136, "height": 56 },
+    { "id": "fx", "lane": "drain", "col": 1, "type": "backend", "label": "Fx Lifecycle", "sublabel": "9 Hook 逆序", "height": 56 },
+    { "id": "cron", "lane": "signal", "col": 1, "type": "backend", "label": "停 CronManager", "sublabel": "StopAll · 3min", "height": 56 },
+    { "id": "pond", "lane": "signal", "col": 2, "type": "backend", "label": "停 Pond + 图片池", "sublabel": "store → blob → agent · 3min", "width": 140, "height": 56 },
+    { "id": "inflight", "lane": "drain", "col": 2, "type": "backend", "label": "InFlight 泄流", "sublabel": "Drain · 5min + 30s", "width": 140, "height": 56 },
+    { "id": "http", "lane": "drain", "col": 3, "type": "backend", "label": "停 Flusher · 关 HTTP", "sublabel": "Flusher → Shutdown 30s", "tag": "焦点", "width": 156, "height": 56 },
+    { "id": "log", "lane": "signal", "col": 3, "type": "backend", "label": "同步日志", "sublabel": "zap Sync · Trigger Stop", "width": 156, "height": 56 },
+    { "id": "rel", "lane": "drain", "col": 4, "type": "database", "label": "释放资源", "sublabel": "关闭 DB · Redis", "width": 116, "height": 56 }
+  ],
+  "edges": [
+    { "from": "sig", "to": "fx", "label": "触发" },
+    { "from": "fx", "to": "cron", "label": "逆序第一步" },
+    { "from": "cron", "to": "inflight", "label": "拒新 · 等在途" },
+    { "from": "inflight", "to": "pond", "label": "排空任务 3min" },
+    { "from": "pond", "to": "http", "label": "停采集 · 关服务" },
+    { "from": "http", "to": "log", "label": "日志落盘" },
+    { "from": "log", "to": "rel", "label": "最后释放" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "K8s 协同", "items": ["preStop sleep 10；terminationGracePeriodSeconds 480", "readiness 失败 30×2s 摘流，maxUnavailable 0、maxSurge 2"] },
+    { "dot": "emerald", "title": "泄流焦点", "items": ["Inflight 先拒新并等待，soft 5min + hard 30s；Pond 随后排空", "Flusher 停止后 HTTP 以 30s 关闭，body Close 释放 CancelOnDrain 守护"] },
+    { "dot": "rose", "title": "顺序保证", "items": ["Cron → Inflight → Pond → Flusher → HTTP，Pond 内按 store → 图片 → agent", "随后 Logger.Sync → Trigger.StopSync → CloseDatabase → CloseCache"] }
+  ]
+}

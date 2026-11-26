@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "图片外置与数据集导出数据流",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "animation": "trace",
+    "viewBox": [1068, 560],
+    "views": [
+      { "id": "blob-write", "label": "图片写入", "focus": ["message", "neutralize", "externalizer", "blob-state", "maintenance"], "note": "伪造引用先降级为文本，合法 data URI 再外置为服务端生成的 ImageRef。" },
+      { "id": "dataset-read", "label": "数据集导出", "focus": ["export-request", "owner-filter", "export-query", "image-access", "consumers"], "note": "归属过滤后逐会话转换 ShareGPT，并把图片引用恢复为受预算约束的 base64。" },
+      { "id": "blob-state-view", "label": "状态与回收", "focus": ["blob-state", "image-access", "maintenance"], "note": "数据库记录状态与原图，对象存储保存上传版本，读取与清理解释同一状态机。" }
+    ]
+  },
+  "stages": [
+    { "label": "输入" },
+    { "label": "安全过滤" },
+    { "label": "转换" },
+    { "label": "状态与读取" },
+    { "label": "输出与维护" }
+  ],
+  "nodes": [
+    { "id": "message", "type": "backend", "label": "UnifiedMessage", "sublabel": "文本·图片·工具", "stage": 0, "row": 0, "tag": "不可信输入" },
+    { "id": "export-request", "type": "frontend", "label": "数据集配方", "sublabel": "评分·模型·时间窗", "stage": 0, "row": 2, "tag": "JWT" },
+    { "id": "neutralize", "type": "security", "label": "引用清洗", "sublabel": "NeutralizeImageRefs", "stage": 1, "row": 0, "width": 150, "tag": "防伪引用" },
+    { "id": "owner-filter", "type": "security", "label": "归属过滤", "sublabel": "API Key IDs · 空集恒假", "stage": 1, "row": 2, "width": 150, "tag": "租户隔离" },
+    { "id": "externalizer", "type": "backend", "label": "图片外置器", "sublabel": "sha256 · ImageRef · 上传池", "stage": 2, "row": 0, "width": 150, "tag": "Externalizer" },
+    { "id": "export-query", "type": "backend", "label": "逐会话导出", "sublabel": "游标分页 · ShareGPT 行", "stage": 2, "row": 2, "tag": "ExportStream" },
+    { "id": "blob-state", "type": "database", "label": "blobs + 对象存储", "sublabel": "pending → uploaded · ≤2MB", "stage": 3, "row": 0, "width": 170, "tag": "状态机" },
+    { "id": "image-access", "type": "backend", "label": "导出与图片读取", "sublabel": "ShareGPT · ImageReader", "stage": 3, "row": 2, "width": 170, "tag": "精确引用" },
+    { "id": "maintenance", "type": "backend", "label": "重试与回收", "sublabel": "上传补传 · 无引用删除", "stage": 4, "row": 0, "tag": "Cron" },
+    { "id": "consumers", "type": "frontend", "label": "详情与 NDJSON", "sublabel": "预览 · base64 导出", "stage": 4, "row": 2, "width": 150, "tag": "X-Total-Sessions" }
+  ],
+  "flows": [
+    { "id": "message-neutralize", "from": "message", "to": "neutralize", "label": "原始消息", "classification": "不可信", "variant": "emphasis", "route": "straight", "labelDy": 53 },
+    { "id": "neutralize-externalizer", "from": "neutralize", "to": "externalizer", "label": "合法图片", "classification": "伪造引用已降级", "variant": "security", "route": "straight", "labelDy": 53 },
+    { "id": "externalizer-blob", "from": "externalizer", "to": "blob-state", "label": "引用 + 原图", "classification": "先持久化再上传", "variant": "emphasis", "route": "straight", "labelDy": 53 },
+    { "id": "blob-maintenance", "from": "blob-state", "to": "maintenance", "label": "待重试 / 待清理", "classification": "状态驱动", "variant": "dashed", "route": "straight", "labelDy": 53 },
+    { "id": "request-filter", "from": "export-request", "to": "owner-filter", "label": "导出条件", "classification": "admin 全量 · user 自有", "variant": "emphasis", "route": "straight", "labelDy": 53 },
+    { "id": "filter-query", "from": "owner-filter", "to": "export-query", "label": "ExportFilter", "classification": "owner IDs", "variant": "security", "route": "straight", "labelDy": 53 },
+    { "id": "query-images", "from": "export-query", "to": "image-access", "label": "会话 + 图片引用", "classification": "逐行组装", "variant": "default", "route": "straight", "labelDy": 53 },
+    { "id": "blob-images", "from": "blob-state", "to": "image-access", "label": "DB / S3 字节", "classification": "按状态读取", "variant": "default", "labelDy": 24 },
+    { "id": "images-consumers", "from": "image-access", "to": "consumers", "label": "NDJSON + 图片", "classification": "一会话一行", "variant": "emphasis", "route": "straight", "labelDy": 53 }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "写入与引用安全", "items": ["客户端 aris-blob 引用降级为文本；服务端按 sha256 生成 pending 与 ImageRef", "事务锁定可引用记录；上传失败保留 pending，由上传池与 Cron 补传"] },
+    { "dot": "emerald", "title": "读取与导出", "items": ["pending 读 DB，uploaded 用预签名 URL；导出按 API Key 归属过滤", "一会话一行 NDJSON，图片内联 base64，X-Total-Sessions 校验完整性"] },
+    { "dot": "rose", "title": "状态与回收", "items": ["硬删消息时记录候选，锁定后复查全表引用", "仍有引用则保留；对象删除失败留待下轮，不误删可用图片"] }
+  ]
+}

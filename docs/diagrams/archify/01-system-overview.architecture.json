@@ -8,30 +8,30 @@
     "animation": "trace",
     "repository": {
       "url": "https://github.com/hcd233/aris-mass",
-      "revision": "68c75b31db6e07bd36b067d5be2fb3e1c5e67ebd"
+      "revision": "e5fb3cc437465f373c2a87d0945be63f7716ded2"
     },
     "viewBox": [1360, 800],
     "views": [
       { "id": "main-path", "label": "主请求路径", "focus": ["agentic-clients", "interface", "application", "domain", "infra", "maas"], "note": "一次 LLM 代理转发从客户端到上游的完整路径。" },
       { "id": "dip", "label": "依赖倒置", "focus": ["domain", "infra", "application"], "note": "领域层声明仓储接口，基础设施反向实现（DIP）。" },
-      { "id": "crosscut", "label": "横切关注点", "focus": ["cron", "bootstrap", "application", "infra"], "note": "Cron 定时治理与 Fx 装配驱动应用与基础设施。" },
-      { "id": "admin-plane", "label": "管理面", "focus": ["web-admin", "trace-cli", "interface", "postgres"], "note": "Web 后台与 Trace CLI 的入口与持久化。" }
+      { "id": "crosscut", "label": "横切关注点", "focus": ["cron", "bootstrap", "application", "infra"], "note": "6 个 Cron 维护任务与 Fx 生命周期共同驱动应用和基础设施。" },
+      { "id": "admin-plane", "label": "管理面", "focus": ["web-admin", "trace-cli", "interface", "postgres"], "note": "Web 后台与 aris CLI 通过各自认证分区进入应用层。" }
     ]
   },
   "components": [
-    { "id": "web-admin", "type": "frontend", "label": "Web 管理后台", "sublabel": "Next.js 16 静态导出 · basePath /web · 后台 14 页 + 公开 3 页", "tag": "JWT", "pos": [40, 30], "size": [400, 96], "sources": [{ "path": "web/src/app/layout.tsx", "label": "App Router" }] },
-    { "id": "trace-cli", "type": "frontend", "label": "Aris Trace CLI", "sublabel": "init · model export · trace ingest · 独立二进制 4 平台", "tag": "codex · claude", "pos": [480, 30], "size": [400, 96], "sources": [{ "path": "internal/client/api/client.go" }] },
+    { "id": "web-admin", "type": "frontend", "label": "Web 管理后台", "sublabel": "Next.js 16 静态导出 · 15 后台页 + 4 公开页", "tag": "JWT", "pos": [40, 30], "size": [400, 96], "sources": [{ "path": "web/src/app/layout.tsx", "label": "App Router" }] },
+    { "id": "trace-cli", "type": "frontend", "label": "aris CLI", "sublabel": "init · status · model export · update · 4 平台", "tag": "API Key", "pos": [480, 30], "size": [400, 96], "sources": [{ "path": "internal/client/api/client.go" }] },
     { "id": "agentic-clients", "type": "external", "label": "Agentic 客户端", "sublabel": "Claude Code · Codex · OpenCode · Pi · OpenAI / Anthropic 兼容入口", "tag": "SSE 流式", "pos": [920, 30], "size": [400, 96] },
-    { "id": "interface", "type": "backend", "label": "接口层 Interface", "sublabel": "router 四分区 web/cli/proxy/ops · 中间件链 Recover→Metrics→Inflight→Guard→CORS→Compress→Trace→Locale→Log · handler 19 组", "tag": "四分区路由", "pos": [40, 170], "size": [1280, 80], "sources": [{ "path": "internal/router/router.go" }, { "path": "internal/middleware/jwt.go" }, { "path": "internal/handler/session.go" }] },
-    { "id": "application", "type": "backend", "label": "应用层 Application", "sublabel": "17 个用例模块 command/query/port · llmproxy 编排 7 条跨协议路径 · 只依赖 domain 抽象", "tag": "port", "pos": [40, 294], "size": [720, 96], "sources": [{ "path": "internal/application/llmproxy/usecase/openai_chat.go" }] },
-    { "id": "cron", "type": "backend", "label": "Cron 定时治理", "sublabel": "4 任务：终态清理(时) · purge(周日) · think(日) · 命中回写(5min) · Redis 锁单点", "tag": "每小时", "pos": [840, 294], "size": [480, 96] },
-    { "id": "domain", "type": "backend", "label": "领域层 Domain", "sublabel": "聚合 session·conversation·modelcall·identity·apikey·trace · checksum 去重/评分/分享规则内聚 · 仓储只声明接口", "tag": "核心", "pos": [40, 434], "size": [720, 96], "sources": [{ "path": "internal/domain/session/repository.go" }] },
-    { "id": "bootstrap", "type": "backend", "label": "bootstrap · Fx", "sublabel": "container.go 统一装配 · modules 5 组 · Lifecycle 9 Hook · 启动探测 → 优雅退出", "tag": "8 步退出", "pos": [840, 434], "size": [480, 96] },
-    { "id": "infra", "type": "backend", "label": "基础设施层 Infrastructure", "sublabel": "repository(GORM) · cache(Redis) · transport(HTTP/SSE) · pool(pond) · jwt · lock · metrics flusher · 实现 domain 仓储接口 · DTO↔dbmodel 仅此层", "tag": "DIP", "pos": [40, 574], "size": [1280, 80], "sources": [{ "path": "internal/infrastructure/database/dao/base.go" }] },
-    { "id": "postgres", "type": "database", "label": "PostgreSQL", "sublabel": "会话 · 消息 · 审计 · 配置", "brand": "postgresql", "pos": [40, 710], "size": [300, 64] },
-    { "id": "redis", "type": "database", "label": "Redis", "sublabel": "缓存 · 令牌桶 · 锁 · 分享 · 触发词信号", "brand": "redis", "pos": [370, 710], "size": [300, 64] },
-    { "id": "maas", "type": "external", "label": "上游 MaaS", "sublabel": "OpenAI · Anthropic 等", "pos": [700, 710], "size": [300, 64] },
-    { "id": "oauth2", "type": "external", "label": "OAuth2", "sublabel": "GitHub · Google", "pos": [1030, 710], "size": [300, 64] }
+    { "id": "interface", "type": "backend", "label": "接口层 Interface", "sublabel": "router 四分区 web/cli/proxy/ops · 全局中间件 Trace→Compress→Log→Recover→Metrics→Inflight→Guard→CORS→Locale · handler → DTO", "tag": "四分区路由", "pos": [40, 170], "size": [1280, 80], "sources": [{ "path": "internal/router/router.go" }, { "path": "internal/middleware/jwt.go" }, { "path": "internal/handler/session.go" }] },
+    { "id": "application", "type": "backend", "label": "应用层 Application", "sublabel": "17 个用例模块 command/query/port · 7 条跨协议路径 + Decision 原生 · token 压缩与计价", "tag": "port", "pos": [40, 294], "size": [720, 96], "sources": [{ "path": "internal/application/llmproxy/usecase/openai_chat.go" }] },
+    { "id": "cron", "type": "backend", "label": "Cron 定时治理", "sublabel": "终态清理 · purge · think · 命中回写 · 图片补传 · OAuth 维护", "tag": "6 任务 · Redis 锁", "pos": [840, 294], "size": [480, 96], "sources": [{ "path": "internal/cron/cron.go" }] },
+    { "id": "domain", "type": "backend", "label": "领域层 Domain", "sublabel": "session · conversation · modelcall · identity · apikey · llmproxy · blob · harness · 仓储只声明接口", "tag": "核心", "pos": [40, 434], "size": [720, 96], "sources": [{ "path": "internal/domain/session/repository.go" }] },
+    { "id": "bootstrap", "type": "backend", "label": "bootstrap · Fx", "sublabel": "container.go 统一装配 · modules 5 组 · Lifecycle 9 Hook · 启动与优雅退出", "tag": "9 Hook", "pos": [840, 434], "size": [480, 96], "sources": [{ "path": "internal/bootstrap/container.go" }] },
+    { "id": "infra", "type": "backend", "label": "基础设施层 Infrastructure", "sublabel": "GORM · Redis · HTTP/SSE · Pond · OAuth Provider · Blob/Object Store · Models.dev · Metrics Flusher · 反向实现领域接口", "tag": "DIP", "pos": [40, 574], "size": [1280, 80], "sources": [{ "path": "internal/infrastructure/database/dao/base.go" }] },
+    { "id": "postgres", "type": "database", "label": "PostgreSQL", "sublabel": "会话 · 消息 · 审计 · 配置 · blobs", "brand": "postgresql", "pos": [40, 710], "size": [300, 64] },
+    { "id": "redis", "type": "database", "label": "Redis", "sublabel": "缓存 · 限流 · 锁 · 分享 · Pub/Sub", "brand": "redis", "pos": [370, 710], "size": [300, 64] },
+    { "id": "maas", "type": "external", "label": "上游与订阅", "sublabel": "MaaS API · Claude / Codex OAuth", "pos": [700, 710], "size": [300, 64] },
+    { "id": "oauth2", "type": "external", "label": "外部服务", "sublabel": "OAuth2 · S3 · CLS · models.dev", "pos": [1030, 710], "size": [300, 64] }
   ],
   "boundaries": [
     { "kind": "region", "label": "客户端与 Agent Harness", "wraps": ["web-admin", "trace-cli", "agentic-clients"], "pad": 10 },
@@ -40,7 +40,7 @@
   ],
   "connections": [
     { "id": "web-jwt", "from": "web-admin", "to": "interface", "label": "JWT · /web/*", "fromSide": "bottom", "toSide": "top", "labelAt": [280, 148] },
-    { "id": "cli-report", "from": "trace-cli", "to": "interface", "label": "X-API-Key 上报", "fromSide": "bottom", "toSide": "top", "labelAt": [724, 162] },
+    { "id": "cli-report", "from": "trace-cli", "to": "interface", "label": "X-API-Key · 模型与校验", "fromSide": "bottom", "toSide": "top", "labelAt": [790, 162] },
     { "id": "agents-forward", "from": "agentic-clients", "to": "interface", "label": "X-API-Key 转发", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "labelAt": [1060, 148] },
     { "id": "iface-to-app", "from": "interface", "to": "application", "label": "handler → port", "fromSide": "bottom", "toSide": "top" },
     { "id": "app-to-domain", "from": "application", "to": "domain", "label": "依赖聚合 · 领域接口", "fromSide": "bottom", "toSide": "top", "labelAt": [455, 412] },
@@ -50,11 +50,11 @@
     { "id": "infra-sql", "from": "infra", "to": "postgres", "label": "GORM · SQL", "fromSide": "bottom", "toSide": "top", "labelAt": [428, 702] },
     { "id": "infra-cache", "from": "infra", "to": "redis", "label": "缓存 · 限流 · 锁", "fromSide": "bottom", "toSide": "top", "labelAt": [600, 702] },
     { "id": "infra-maas", "from": "infra", "to": "maas", "label": "HTTP · SSE", "fromSide": "bottom", "toSide": "top", "labelAt": [772, 702] },
-    { "id": "infra-oauth", "from": "infra", "to": "oauth2", "label": "OAuth2", "fromSide": "bottom", "toSide": "top", "labelAt": [944, 702] }
+    { "id": "infra-oauth", "from": "infra", "to": "oauth2", "label": "OAuth2 · S3 · HTTPS", "fromSide": "bottom", "toSide": "top", "labelAt": [944, 702] }
   ],
   "cards": [
     { "dot": "cyan", "title": "DDD 分层", "items": ["依赖向内：接口层 → 应用层 → 领域层", "基础设施反向实现仓储接口（DIP）"] },
-    { "dot": "emerald", "title": "应用与横切", "items": ["应用层 17 个用例模块 · command/query/port", "llmproxy 编排 7 条跨协议路径 · 3 converter"] },
-    { "dot": "rose", "title": "入口与外部", "items": ["三类客户端：Web 后台 · Trace CLI · Agentic", "路由四分区：web · cli · proxy · ops · handler 19 组"] }
+    { "dot": "emerald", "title": "应用与横切", "items": ["应用层 17 个用例模块 · command/query/port", "7 条跨协议路径 + Decision 原生 · 6 个 Cron · Fx 9 Hook"] },
+    { "dot": "rose", "title": "入口与外部", "items": ["三类客户端：Web 后台 · aris CLI · Agentic", "路由四分区 web/cli/proxy/ops · PostgreSQL + Redis + 对象存储"] }
   ]
 }

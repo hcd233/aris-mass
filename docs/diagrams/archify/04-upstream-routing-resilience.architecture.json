@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "上游调度与容错",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "animation": "trace",
+    "repository": {
+      "url": "https://github.com/hcd233/aris-mass",
+      "revision": "e5fb3cc437465f373c2a87d0945be63f7716ded2"
+    },
+    "viewBox": [1360, 640],
+    "views": [
+      { "id": "chain", "label": "调度与转发", "focus": ["proxy", "adapt", "guard", "retry", "upstream"], "note": "Resolver 生成有序候选，逐候选过 Guard、同端点重试并访问上游。" },
+      { "id": "defense", "label": "两道防线", "focus": ["breaker", "bulkhead", "degrade"], "note": "三态熔断 + 信号量隔离；可切换错误进入下一候选，耗尽后按协议降级。" },
+      { "id": "observe", "label": "可观测", "focus": ["metrics"], "note": "熔断与隔离状态全部暴露为 Prometheus 指标。" }
+    ]
+  },
+  "components": [
+    { "id": "proxy", "type": "backend", "label": "EndpointResolver", "sublabel": "自有租户 → public 池 → 可选共享池", "tag": "协议能力过滤", "pos": [40, 40], "size": [260, 104], "sources": [{ "path": "internal/domain/llmproxy/service/resolver.go" }] },
+    { "id": "adapt", "type": "backend", "label": "调度与亲和", "sublabel": "priority 分档 · A-Res 加权 · 5min 亲和", "tag": "有序候选", "pos": [380, 40], "size": [260, 104] },
+    { "id": "guard", "type": "security", "label": "EndpointGuard", "sublabel": "稳定 key · Allow → Lease → Report", "tag": "覆盖 SSE body", "pos": [720, 40], "size": [260, 104], "sources": [{ "path": "internal/infrastructure/transport/guard.go" }] },
+    { "id": "retry", "type": "backend", "label": "UpstreamRetry", "sublabel": "指数退避 + jitter · 同端点最多 6 次尝试", "pos": [1060, 40], "size": [260, 104] },
+    { "id": "upstream", "type": "external", "label": "MaaS / 订阅上游", "sublabel": "HTTP/SSE · 429 不计熔断 · 断流计入失败", "pos": [1060, 190], "size": [260, 88] },
+    { "id": "degrade", "type": "backend", "label": "fallback 与降级", "sublabel": "可切换错误→下一候选 · 耗尽→协议错误体", "tag": "503 + Retry-After", "pos": [40, 240], "size": [240, 104] },
+    { "id": "breaker", "type": "security", "label": "三态熔断器", "sublabel": "默认 60s · min10 · ≥50% · 30s 半开", "tag": "容错防线", "pos": [360, 240], "size": [280, 124], "sources": [{ "path": "internal/common/resilience/circuit_breaker.go" }] },
+    { "id": "bulkhead", "type": "security", "label": "信号量隔离", "sublabel": "默认 per-key ≤32 · 等待 1s 超时", "tag": "容错防线", "pos": [730, 240], "size": [240, 104] },
+    { "id": "metrics", "type": "backend", "label": "Prometheus 容错指标", "sublabel": "circuit_state/open/rejected · bulkhead_rejected", "tag": "脱敏 endpoint key", "pos": [360, 430], "size": [600, 88] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "转发链", "wraps": ["proxy", "adapt", "guard", "retry", "upstream"], "pad": 10 },
+    { "kind": "region", "label": "容错防线", "wraps": ["degrade", "breaker", "bulkhead"], "pad": 10 }
+  ],
+  "connections": [
+    { "id": "c1", "from": "proxy", "to": "adapt", "label": "有序候选", "fromSide": "right", "toSide": "left" },
+    { "id": "c2", "from": "adapt", "to": "guard", "label": "稳定 key", "fromSide": "right", "toSide": "left" },
+    { "id": "c3", "from": "guard", "to": "retry", "label": "Allow + Lease", "fromSide": "right", "toSide": "left" },
+    { "id": "c4", "from": "retry", "to": "upstream", "fromSide": "bottom", "toSide": "top" },
+    { "id": "c5", "from": "retry", "to": "guard", "label": "Report(key, !IsCircuitError)", "variant": "dashed", "fromSide": "bottom", "toSide": "right", "via": [[1190, 178], [1010, 178], [1010, 92]], "labelAt": [1060, 164] },
+    { "id": "c6", "from": "guard", "to": "breaker", "label": "熔断判定", "fromSide": "bottom", "toSide": "top", "labelAt": [645, 203] },
+    { "id": "c7", "from": "guard", "to": "bulkhead", "label": "并发获取", "fromSide": "bottom", "toSide": "top", "labelAt": [850, 225] },
+    { "id": "c8", "from": "breaker", "to": "degrade", "label": "打开→降级", "fromSide": "left", "toSide": "right", "labelAt": [320, 290] },
+    { "id": "c10", "from": "breaker", "to": "metrics", "label": "状态暴露", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelAt": [500, 397] },
+    { "id": "c11", "from": "bulkhead", "to": "metrics", "label": "拒绝计数", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelAt": [840, 387] }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "调度与稳定身份", "items": ["别名先查自有租户，未命中回退 public 池，再按配置回退 user_id=0 共享池", "priority 升序分档，同档 A-Res 加权洗牌；会话头或首问指纹亲和置顶，TTL 5 分钟", "Guard key 为 BaseURL|sha256(APIKey)前8位；OAuth 用 BaseURL|oauth:{endpointID}，不泄露 token"] },
+    { "dot": "emerald", "title": "重试、fallback 与防线", "items": ["同端点默认最多 6 次尝试，指数退避 + jitter；连接错误 / 5xx / 429 可重试", "流建立前的可切换错误进入下一候选；候选耗尽或不可切换时返回最后错误", "默认熔断 60s 滑窗、≥10 请求且 ≥50% 失败打开、30s 半开 1 探测；信号量 ≤32 / 1s"] },
+    { "dot": "rose", "title": "SSE 与观测边界", "items": ["Guard Lease 覆盖整个响应 body：慢流持续占槽，非 EOF 读错误在 Close 时计入熔断", "429 可重试和 fallback，但不计熔断；已交付 SSE 不再跨端点切换", "upstream_circuit_state / open_total / rejected_total / bulkhead_rejected_total 以脱敏 key 标记"] }
+  ]
+}

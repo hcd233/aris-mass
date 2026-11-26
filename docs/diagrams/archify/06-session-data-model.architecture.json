@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "会话与内容数据模型",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "animation": "trace",
+    "repository": {
+      "url": "https://github.com/hcd233/aris-mass",
+      "revision": "e5fb3cc437465f373c2a87d0945be63f7716ded2"
+    },
+    "viewBox": [1140, 620],
+    "views": [
+      { "id": "write-path", "label": "写入与图片", "focus": ["llm-forward", "trace-ingest", "session", "msg-tool"], "note": "LLM 调用异步写入 Session；图片以 Blob 状态和 ImageRef 与消息关联。" },
+      { "id": "entities", "label": "内容寻址实体", "focus": ["session", "msg-tool", "cache", "trace-ingest"], "note": "Message / Tool 按 checksum 去重，Blob 按原始字节 sha256 去重。" },
+      { "id": "consumers", "label": "消费与治理", "focus": ["web", "export", "share", "audit", "cron"], "note": "查询评分、导出、分享、审计与 Cron 治理围绕聚合展开。" }
+    ]
+  },
+  "components": [
+    { "id": "llm-forward", "type": "backend", "label": "LLM 转发", "sublabel": "MessageStoreTask · checksum 去重 · 事务写入", "tag": "异步落库", "pos": [40, 80], "size": [260, 88], "sources": [{ "path": "internal/infrastructure/pool/store_pool.go" }] },
+    { "id": "trace-ingest", "type": "database", "label": "Blob 图片记录", "sublabel": "原始字节 sha256 · ImageRef · DB + S3", "tag": "按内容去重", "pos": [40, 220], "size": [260, 88], "sources": [{ "path": "internal/infrastructure/blobstore/externalizer.go" }] },
+    { "id": "session", "type": "backend", "label": "Session 聚合根", "sublabel": "message_ids[] · tool_ids[] · questions[] · score 1-5", "tag": "APIKeyID 归属", "pos": [400, 60], "size": [300, 140], "sources": [{ "path": "internal/domain/session/aggregate/session.go" }] },
+    { "id": "msg-tool", "type": "database", "label": "Message · Tool", "sublabel": "协议无关 JSON · 不可变 · 内容寻址", "tag": "check_sum unique", "pos": [320, 270], "size": [190, 104] },
+    { "id": "cache", "type": "database", "label": "SessionDetailCache", "sublabel": "Redis meta+msg+tool · TTL 1h", "tag": "合并后精确失效", "pos": [600, 270], "size": [200, 88], "sources": [{ "path": "internal/infrastructure/cache/session_detail.go" }] },
+    { "id": "cron", "type": "backend", "label": "Cron 治理", "sublabel": "终态清理 · 软删清理 · think-extract", "tag": "Redis 分布式锁", "pos": [420, 420], "size": [260, 88] },
+    { "id": "web", "type": "frontend", "label": "Web 管理后台", "sublabel": "查询 · 评分 · Harness 归因 · 图片按需读取", "tag": "详情经缓存", "pos": [820, 40], "size": [280, 88] },
+    { "id": "export", "type": "backend", "label": "训练数据导出", "sublabel": "ShareGPT NDJSON 流 · 图片内联 · 不持久化", "tag": "一会话一行", "pos": [820, 180], "size": [280, 88] },
+    { "id": "share", "type": "external", "label": "会话分享", "sublabel": "Redis UUID 默认 24h · 1d/7d/30d/never", "tag": "无鉴权 IP 限流", "pos": [820, 340], "size": [280, 88] },
+    { "id": "audit", "type": "database", "label": "ModelCallAudit 审计", "sublabel": "tokens 4 维 · 延迟 2 段 · 估算费用 · trace_id", "tag": "独立调用事实", "pos": [820, 480], "size": [280, 88] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "写入与图片外置", "wraps": ["llm-forward", "trace-ingest"], "pad": 10 },
+    { "kind": "region", "label": "Session 聚合中枢", "wraps": ["session", "msg-tool", "cache"], "pad": 10 },
+    { "kind": "region", "label": "消费侧", "wraps": ["web", "export", "share", "audit"], "pad": 10 }
+  ],
+  "connections": [
+    { "id": "llm-write", "from": "llm-forward", "to": "session", "label": "单事务写入", "fromSide": "right", "toSide": "left", "labelAt": [344, 110] },
+    { "id": "trace-write", "from": "trace-ingest", "to": "session", "label": "ImageRef 随消息关联", "fromSide": "right", "toSide": "left", "labelAt": [352, 214] },
+    { "id": "refs", "from": "session", "to": "msg-tool", "label": "引用 ids", "fromSide": "bottom", "toSide": "top", "labelAt": [480, 226] },
+    { "id": "cache-read", "from": "session", "to": "cache", "label": "三层读缓存", "fromSide": "bottom", "toSide": "top", "labelAt": [640, 232] },
+    { "id": "web-query", "from": "web", "to": "session", "label": "查询 · 评分", "fromSide": "left", "toSide": "right" },
+    { "id": "export-stream", "from": "export", "to": "session", "label": "流式导出", "fromSide": "left", "toSide": "right" },
+    { "id": "cron-govern", "from": "cron", "to": "session", "label": "终态清理", "variant": "dashed", "fromSide": "top", "toSide": "bottom" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "聚合与内容寻址", "items": ["Session 以 api_key_id 归属；Message / Tool 按 checksum 去重，Blob 按 sha256 去重", "续写在独立短事务中以 FOR UPDATE 合并，保留 ID、评分和分享"] },
+    { "dot": "emerald", "title": "读取与缓存", "items": ["三层详情缓存 TTL 1h，合并后精确失效；图片按需读取", "Harness 由首轮 client_ua + 最长前缀规则派生，不参与鉴权或路由"] },
+    { "dot": "rose", "title": "消费与治理", "items": ["Web 查询评分，NDJSON 导出并恢复 base64 图片；分享走 IP 限流", "ModelCallAudit 独立记录调用；Cron 负责清理与 Think 提取"] }
+  ]
+}
