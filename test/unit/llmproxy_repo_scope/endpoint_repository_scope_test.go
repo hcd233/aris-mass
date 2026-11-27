@@ -67,6 +67,55 @@ func mustAggregateEndpoint(t *testing.T) *aggregate.Endpoint {
 	return ep
 }
 
+func TestEndpointRepo_CreatePreservesDisabledChat(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	if err := db.AutoMigrate(&dbmodel.Endpoint{}); err != nil {
+		t.Fatal(err)
+	}
+	ep, err := aggregate.CreateEndpoint(0, "response-only", "https://o.example.com", "", "sk-k", false, true, false, false, enum.EndpointAuthAPIKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := repository.NewEndpointRepository(db)
+	id, err := repo.Create(t.Context(), ep, 101)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := repo.FindByID(t.Context(), id, lo.ToPtr(uint(101)))
+	if err != nil || saved == nil {
+		t.Fatalf("find created endpoint: %v", err)
+	}
+	if saved.SupportOpenAIChatCompletion() || !saved.SupportOpenAIResponse() {
+		t.Fatalf("response-only endpoint persisted incorrect capabilities: chat=%v response=%v", saved.SupportOpenAIChatCompletion(), saved.SupportOpenAIResponse())
+	}
+}
+
+func TestEndpointRepo_CreateRollsBackWhenCapabilityWriteFails(t *testing.T) {
+	t.Parallel()
+	db := newTestDB(t)
+	if err := db.AutoMigrate(&dbmodel.Endpoint{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TRIGGER reject_chat_update BEFORE UPDATE OF support_openai_chat_completion ON endpoints BEGIN SELECT RAISE(ABORT, 'capability update failed'); END`).Error; err != nil {
+		t.Fatal(err)
+	}
+	ep, err := aggregate.CreateEndpoint(0, "response-only", "https://o.example.com", "", "sk-k", false, true, false, false, enum.EndpointAuthAPIKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.NewEndpointRepository(db).Create(t.Context(), ep, 101); err == nil {
+		t.Fatal("expected capability update failure")
+	}
+	var count int64
+	if err := db.Model(&dbmodel.Endpoint{}).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("failed create left %d endpoint records", count)
+	}
+}
+
 func TestEndpointRepo_UserIsolation(t *testing.T) {
 	t.Parallel()
 	db := newTestDB(t)

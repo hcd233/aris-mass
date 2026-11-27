@@ -168,16 +168,33 @@ func toEndpointModel(ep *aggregate.Endpoint) *dbmodel.Endpoint {
 	}
 }
 
-// Create 创建端点（写入归属 ownerUserID）
-func (r *endpointRepository) Create(ctx context.Context, ep *aggregate.Endpoint, ownerUserID uint) (uint, error) {
-	db := r.db.WithContext(ctx)
+// createEndpointRecord 保留显式关闭的 Chat 能力，避免 GORM 的 default:true 覆盖 false。
+func createEndpointRecord(db *gorm.DB, ep *aggregate.Endpoint, ownerUserID uint) (uint, error) {
 	m := toEndpointModel(ep)
 	m.UserID = ownerUserID
 	if err := db.Create(m).Error; err != nil {
 		return 0, ierr.Wrap(ierr.ErrDBCreate, err, "create endpoint")
 	}
-	r.cache.InvalidateAll(ctx)
+	if !ep.SupportOpenAIChatCompletion() {
+		if err := db.Model(m).UpdateColumn(constant.FieldEndpointSupportOpenAIChatCompletion, false).Error; err != nil {
+			return 0, ierr.Wrap(ierr.ErrDBCreate, err, "preserve endpoint chat capability")
+		}
+	}
 	return m.ID, nil
+}
+
+// Create 创建端点（写入归属 ownerUserID）
+func (r *endpointRepository) Create(ctx context.Context, ep *aggregate.Endpoint, ownerUserID uint) (uint, error) {
+	var endpointID uint
+	if err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var err error
+		endpointID, err = createEndpointRecord(tx, ep, ownerUserID)
+		return err
+	}); err != nil {
+		return 0, err
+	}
+	r.cache.InvalidateAll(ctx)
+	return endpointID, nil
 }
 
 // Update 写入端点的连接配置和可见性。
@@ -468,12 +485,11 @@ func (r *endpointRepository) CreateWithOAuthCredential(ctx context.Context, ep *
 	db := r.db.WithContext(ctx)
 	var endpointID uint
 	if err := db.Transaction(func(tx *gorm.DB) error {
-		record := toEndpointModel(ep)
-		record.UserID = ownerUserID
-		if err := tx.Create(record).Error; err != nil {
-			return ierr.Wrap(ierr.ErrDBCreate, err, "create oauth endpoint")
+		var err error
+		endpointID, err = createEndpointRecord(tx, ep, ownerUserID)
+		if err != nil {
+			return err
 		}
-		endpointID = record.ID
 
 		cred.SetEndpointID(endpointID)
 		credRecord, err := buildOAuthCredentialModel(cred)

@@ -431,3 +431,19 @@ func TestCodexEndpointRequiresStream(t *testing.T) {
 		t.Fatalf("stream request through codex endpoint: %v", err)
 	}
 }
+
+func TestCodexEndpointPersistsResponsesOnly(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	id := f.seedOAuthEndpoint(t, enum.OAuthProviderOpenAI, "codex-response-only")
+	ep, err := f.endpointRepo.FindByID(t.Context(), id, &f.user.ID)
+	if err != nil || ep == nil {
+		t.Fatalf("find codex endpoint: %v", err)
+	}
+	if ep.SupportOpenAIChatCompletion() || !ep.SupportOpenAIResponse() {
+		t.Fatalf("codex capabilities: chat=%v response=%v", ep.SupportOpenAIChatCompletion(), ep.SupportOpenAIResponse())
+	}
+	if route := usecase.SelectCompatRoute(enum.ProxyAPIOpenAIChat, ep); route != enum.CompatRouteViaOpenAIResponse {
+		t.Fatalf("chat route = %v, want responses conversion", route)
+	}
+}

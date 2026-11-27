@@ -86,6 +86,8 @@ ProxyAPIOpenAIChat:
 
 效果：Codex 订阅端点（仅 Responses）对 Chat 客户端变为可选候选；与其他候选之间仍走既有 `runWithFallback`（流建立前失败可切换端点）。
 
+创建端点时，仓储必须在同一事务中保留显式传入的 Chat 能力 `false`，不能让 GORM 的 `default:true` 将 Responses-only 端点误写为同时支持 Chat。已有错误的 OAuth 端点需要修正能力标记后才能按上述规则选路。
+
 ## 4. 请求转换（Chat → Responses）
 
 新文件 `converter/response_from_chat.go`，方法挂在既有 `ResponseProtocolConverter` 上：

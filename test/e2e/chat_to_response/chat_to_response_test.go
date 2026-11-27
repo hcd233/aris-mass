@@ -33,6 +33,7 @@ import (
 	"github.com/hcd233/aris-mass/internal/application/llmproxy/usecase"
 	"github.com/hcd233/aris-mass/internal/common/enum"
 	"github.com/hcd233/aris-mass/internal/common/inflight"
+	"github.com/hcd233/aris-mass/internal/domain/llmproxy/aggregate"
 	llmproxyservice "github.com/hcd233/aris-mass/internal/domain/llmproxy/service"
 	"github.com/hcd233/aris-mass/internal/dto"
 	"github.com/hcd233/aris-mass/internal/handler"
@@ -224,18 +225,16 @@ func newFixture(t *testing.T, supportChat bool, upstreamHandler http.HandlerFunc
 	if err := db.Create(key).Error; err != nil {
 		t.Fatalf("create api key: %v", err)
 	}
-	ep := &dbmodel.Endpoint{UserID: user.ID, Name: "ep-c2r", APIKey: "sk-upstream",
-		OpenaiBaseURL: upstream.URL, SupportOpenAIChatCompletion: supportChat, SupportOpenAIResponse: true}
-	if err := db.Create(ep).Error; err != nil {
+	ep, err := aggregate.CreateEndpoint(0, "ep-c2r", upstream.URL, "", "sk-upstream", supportChat, true, false, false, enum.EndpointAuthAPIKey)
+	if err != nil {
+		t.Fatalf("build endpoint: %v", err)
+	}
+	endpointID, err := endpointRepo.Create(t.Context(), ep, user.ID)
+	if err != nil {
 		t.Fatalf("create endpoint: %v", err)
 	}
-	// support_openai_chat_completion 有 default:true，GORM 创建时 false 会被默认值覆盖，须显式回写
-	if err := db.Model(&dbmodel.Endpoint{}).Where("id = ?", ep.ID).
-		Update("support_openai_chat_completion", supportChat).Error; err != nil {
-		t.Fatalf("update endpoint capability: %v", err)
-	}
 	m := &dbmodel.Model{UserID: user.ID, Alias: "c2r-alias", ModelID: "c2r-alias", UpstreamModel: "gpt-up",
-		EndpointID: ep.ID, Capabilities: []enum.InputModality{enum.InputModalityText}}
+		EndpointID: endpointID, Capabilities: []enum.InputModality{enum.InputModalityText}}
 	if err := db.Create(m).Error; err != nil {
 		t.Fatalf("create model: %v", err)
 	}
