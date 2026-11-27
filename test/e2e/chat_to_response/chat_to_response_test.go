@@ -489,11 +489,23 @@ data: {"type":"response.completed","response":{"id":"resp_2","status":"completed
 	if upstreamReq.Input == nil {
 		t.Fatal("upstream input 为空")
 	}
+	var upstreamWire struct {
+		Input []map[string]sonic.NoCopyRawMessage `json:"input"`
+	}
+	if err := sonic.Unmarshal(f.capture.lastBody(t), &upstreamWire); err != nil {
+		t.Fatalf("upstream wire body unmarshal: %v", err)
+	}
+	if len(upstreamWire.Input) != len(upstreamReq.Input.Items) {
+		t.Fatalf("upstream wire input count = %d, want %d", len(upstreamWire.Input), len(upstreamReq.Input.Items))
+	}
 	var call, output *dto.ResponseInputItem
-	for _, item := range upstreamReq.Input.Items {
+	for i, item := range upstreamReq.Input.Items {
 		switch {
 		case item.Type != nil && *item.Type == enum.ResponseInputItemTypeFunctionCall:
 			call = item
+			if namespace, ok := upstreamWire.Input[i]["namespace"]; ok {
+				t.Fatalf("upstream function_call contains namespace %s, want field omitted", namespace)
+			}
 		case item.Type != nil && *item.Type == enum.ResponseInputItemTypeFunctionCallOutput:
 			output = item
 		}

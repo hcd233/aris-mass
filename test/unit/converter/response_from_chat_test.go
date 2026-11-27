@@ -26,6 +26,79 @@ func findResponseItem(items []*dto.ResponseInputItem, itemType string) *dto.Resp
 	return nil
 }
 
+func TestToResponseRequest_OmitsEmptyToolCallNamespace(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		tool     *dto.OpenAIChatCompletionTool
+		call     *dto.OpenAIChatCompletionMessageToolCall
+		wantType string
+	}{
+		{
+			name: "function",
+			call: &dto.OpenAIChatCompletionMessageToolCall{
+				ID: lo.ToPtr("call_1"), Type: enum.ToolTypeFunction,
+				Function: &dto.OpenAIChatCompletionMessageFunctionToolCall{Name: "lookup", Arguments: `{}`},
+			},
+			wantType: enum.ResponseInputItemTypeFunctionCall,
+		},
+		{
+			name: "custom wrapped as function",
+			tool: &dto.OpenAIChatCompletionTool{
+				Type: enum.ToolTypeCustom, Custom: &dto.OpenAICustomToolDefinition{Name: "patch"},
+			},
+			call: &dto.OpenAIChatCompletionMessageToolCall{
+				ID: lo.ToPtr("call_2"), Type: enum.ToolTypeFunction,
+				Function: &dto.OpenAIChatCompletionMessageFunctionToolCall{Name: "patch", Arguments: `{"content":"patch"}`},
+			},
+			wantType: enum.ResponseInputItemTypeCustomToolCall,
+		},
+		{
+			name: "direct custom",
+			call: &dto.OpenAIChatCompletionMessageToolCall{
+				ID: lo.ToPtr("call_3"), Type: enum.ToolTypeCustom,
+				Custom: &dto.OpenAIChatCompletionMessageCustomToolCall{Name: "patch", Input: "patch"},
+			},
+			wantType: enum.ResponseInputItemTypeCustomToolCall,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			req := &dto.OpenAIChatCompletionReq{
+				Model: "alias",
+				Messages: []*dto.OpenAIChatCompletionMessageParam{{
+					Role: enum.RoleAssistant, ToolCalls: []*dto.OpenAIChatCompletionMessageToolCall{tt.call},
+				}},
+			}
+			if tt.tool != nil {
+				req.Tools = []dto.OpenAIChatCompletionTool{*tt.tool}
+			}
+			converted, err := (&converter.ResponseProtocolConverter{}).ToResponseRequest(req)
+			if err != nil {
+				t.Fatalf("ToResponseRequest() error: %v", err)
+			}
+			body := proxyutil.MarshalOpenAIResponseBodyForModel(converted, "upstream")
+			var wire struct {
+				Input []map[string]sonic.NoCopyRawMessage `json:"input"`
+			}
+			if err := sonic.Unmarshal(body, &wire); err != nil {
+				t.Fatalf("decode upstream body: %v", err)
+			}
+			if len(wire.Input) != 1 {
+				t.Fatalf("upstream input = %s, want one tool call", body)
+			}
+			var itemType string
+			if err := sonic.Unmarshal(wire.Input[0]["type"], &itemType); err != nil || itemType != tt.wantType {
+				t.Fatalf("upstream item type = %q, want %q (error: %v)", itemType, tt.wantType, err)
+			}
+			if namespace, ok := wire.Input[0]["namespace"]; ok {
+				t.Fatalf("upstream tool call contains namespace %s, want field omitted", namespace)
+			}
+		})
+	}
+}
+
 // 多轮工具循环的完整历史：system/developer 合并为 instructions，
 // assistant 的 reasoning 被丢弃、tool_calls 转 function_call，tool 消息转 function_call_output。
 func TestToResponseRequest_ToolConversationHistory(t *testing.T) {

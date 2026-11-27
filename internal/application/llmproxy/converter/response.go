@@ -559,7 +559,7 @@ func chatMessageToResponseItems(msg *dto.OpenAIChatCompletionMessageParam, toolT
 				Type:      lo.ToPtr(itemType),
 				CallID:    tc.ID,
 				Name:      lo.ToPtr(name),
-				Namespace: lo.ToPtr(ns),
+				Namespace: lo.EmptyableToPtr(ns),
 				Arguments: lo.ToPtr(tc.Function.Arguments),
 			}, true
 		case tc.Custom != nil:
@@ -569,7 +569,7 @@ func chatMessageToResponseItems(msg *dto.OpenAIChatCompletionMessageParam, toolT
 				Type:      lo.ToPtr(itemType),
 				CallID:    tc.ID,
 				Name:      lo.ToPtr(name),
-				Namespace: lo.ToPtr(ns),
+				Namespace: lo.EmptyableToPtr(ns),
 				Input:     lo.ToPtr(tc.Custom.Input),
 			}, true
 		}
@@ -604,7 +604,7 @@ func buildCustomToolCallItem(callID, name, namespace, arguments string) *dto.Res
 		Type:      lo.ToPtr(enum.ResponseInputItemTypeCustomToolCall),
 		CallID:    lo.ToPtr(callID),
 		Name:      lo.ToPtr(name),
-		Namespace: lo.ToPtr(namespace),
+		Namespace: lo.EmptyableToPtr(namespace),
 		Input:     lo.ToPtr(input),
 	}
 }

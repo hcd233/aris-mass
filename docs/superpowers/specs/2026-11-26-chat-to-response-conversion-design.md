@@ -116,6 +116,7 @@ func (c *ResponseProtocolConverter) ToResponseRequest(req *dto.OpenAIChatComplet
 - `user` 消息：`{type:"message", role:"user", content:[...]}`，content 复用 `chatContentToResponseContent(content, input_text)`，文本/图片 parts 均支持。
 - `assistant` 消息：复用 `chatMessageToResponseOutputs` 的工具调用映射，但**丢弃 reasoning**（与 Response→Chat 方向丢弃 reasoning item 对称：Codex `store=false` 下没有可回放的加密 reasoning，回传摘要文本只会污染 prompt）。产出 message item（`output_text`，复用 `buildTextOutputItem`）+ function_call/custom_tool_call item。
   - 实现上把 `chatMessageToResponseOutputs` 抽一个 `includeReasoning bool` 的内部共用函数，原函数签名不变（避免影响既有 Response 输出路径）。
+  - Chat 历史工具调用没有命名空间，必须省略 `namespace` 字段，不能发送空字符串；该共用转换逻辑在 Responses 响应方向保留已知的非空命名空间。
 - `tool` 消息：`{type:"function_call_output", call_id, output}`，`tool_call_id` 原样保留（harness 多轮工具循环的闭环关键）；纯文本直接放 `output` 字符串，多模态 parts 走 `output` 的 content 数组形态。
 
 ### 4.3 工具定义与 tool_choice
